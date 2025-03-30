@@ -74,7 +74,8 @@ message SignedMessage {
 
 ```protobuf
 message BlockProposal {
-    BlockHeader block_header = 1;
+    int round = 1;
+    BlockHeader block_header = 2;
 }
 ```
 
@@ -101,7 +102,8 @@ message TentativeCommit {
 ```protobuf
 message Certificate {
     bytes agg_sig = 1; // aggregated signatures
-    bytes signers = 2; // a bitmap of who provided the signatures
+    repeated uint32 sig_counts = 2; // an array of how many times each validator provided the signatures
+    int round = 3; // the round in which this certificate is formed
 }
 ```
 
@@ -152,7 +154,7 @@ Note that the paper does not specify a concrete curve from the BLS family. We wi
 
 ### Hashing
 
-The paper does not suggest a hash function. We will use SHA3-256 as it's the latest gen, fast and secure.
+The paper does not suggest a hash function. We will use SHA3-256 for it's pseudorandomness.
 
 ### Verifiable Random Function
 
@@ -178,6 +180,14 @@ type Blockchain interface {
 }
 ```
 
+## System Parameters
+
+- Round interval = 5s
+- Proposal stage interval = 2s
+- Agreement stage interval = 3s
+- Gossip interval = 300ms
+- Gossip degree = 3
+
 ## Local State
 
 Each node has a local state as specified by the paper.
@@ -192,28 +202,40 @@ type LocalState struct {
 var state LocalState
 ```
 
-## System Parameters
+## Round State
 
-- Round interval = 5s
-- Proposal stage interval = 2s
-- Agreement stage interval = 3s
-- Gossip interval = 300ms
-- Gossip degree = 3
+Each node maintains a state specific for the current round. The state is reset after going into a new round.
 
-## Block Proposal
+- `round`: the current round number, starting from 0 (the genesis round)
+- `validProposals`: the valid proposals (`proposerScore < T`) collected during this round.
+  - A "valid" proposal is defined as
+    - `proposal.round` == `round`
+    - the TC-cert or P-cert is valid (signatures are valid)
+
+## Consensus
+
+### Random Seed Generation
+
+When does the proposer reveal the seed for the next round? If it's only revealed after a block is proposed, then if the proposer goes offline before revealing it, and the block eventually gets committed, the seed chain would break. Therefore, the only valid place to reveal the new seed without changing the protocol is in the block.
+
+Our implementation deviates from Gosig in what data the new seed is dependant on. Instead of having it depend on only the previous seed, we use `proposerProof` of block `h` as the seed for generating seed for height `h+1`. For proposing a new block $B^{h+1}$, $B^{h}$'s `proposerProof` has the form $SIG_{l^{h}}(r^{h},Q^{h-1})$ where $r^{h-1}$ is the round in which $B^{h-1}$ is proposed, which is just:
+
+1. as random because it also depends on $Q^{h-1}$
+2. as unpredictable because it's signed using a private key
+
+Therefore, using `proposerProof` directly as $Q^{h-1}$ in the computation is just as secure and it removes redundancy.
 
 ### Proposer Selection
 
-After the proposer of the last round reveal the seed of the previous block `prevSeed`
-
 1. Compute the `proposerScore` for the current `round`:
-   1. `seed = r ++ roundSeed`
-   2. `proposerScore, proposerProof = vrf.Generate(privKey, seed)`
+   - `seed = round ++ prevSeed` where `prevSeed` is just the `proposerProof` of the previous committeed block.
+   - `proposerScore, proposerProof = vrf.Generate(privKey, seed)`
+   - > Note that we must include the `round` in the seed so that `seed` is guaranteed to be different for every round. This is not discussed in the paper but it's likely designed to prevent the following attack: say we do not incorporate `r` into the computation of `seed`, i.e. `seed = prevSeed`. 1. a malicious proposer proposes two blocks and send to different honest parties. 2. No block is committed for this round because no block has 2f+1 votes. 3. The next round's `seed` will be the same because no new seed is revealed in the previous round. This means the proposer will be the same malicious validator. 4. Repeat these steps to compromise liveness.
 2. Take the higher 32 bits of the score: `proposerScore[:32]`
 3. The proposer threshold is defined as $T = 7/N * 2^{32}$ where N is the total number nodes (the authors of Gosig found 7/N is good enough)
-4. If `proposerScore < T`, then I'm a proposer
+4. If `proposerScore < T`, then I'm a proposer candidate
 
-> Note: the last round's seed reveal is effectively determined once I (a node) gather enough TC votes for a block (in other words, when I commit a block). At that time, the block can no longer be changed and so is the `seed_reveal` in the block.
+> Note: the last round's seed is effectively determined once I (a node) gather enough TC votes for a block (in other words, when I commit a block). At that time, the block can no longer be changed and so is the `proposerProof` in the block, which is used as the `prevSeed` for next round's seed computation.
 
 ### Proposing a Block
 
@@ -222,7 +244,6 @@ For each round, from a proposer's perspective:
 1. If I have previously TC'd a block `state.TcBlock` but never got enough TC messages from others to commit it:
     1. Use `state.TcBlock` as the `newBlock`
     2. `newProposalCert = db.Get(sha3(state.TcBlock) + "/p_cert")`
-    3. (Note: This check ensures that if prepared(B), then it will eventually be committed)
 2. Else:
     1. Pick some transactions `var txs []SignedTransaction` from the local pool
     2. Compute the root of `txs` (flat hash)
@@ -232,12 +253,28 @@ For each round, from a proposer's perspective:
 
 When receiving a PR message, proceed with Algorithm 1 & 2 defined in the paper.
 
-> ### Unresolved Question
->
-> When do I reveal the seed for the next round?
-> If I only reveal it after a block is committed, then if I go offline and don't reveal, the seed chain would break.
-> If I reveal it directly in block, then why can't we just use the proposer proof for next seed generation?
-> Maybe look more into Algorand's method for this since Gosig's VRF is taken from Algorand.
+### Proposal Reduction
+
+There can be multiple proposals proposed in a round. Correct nodes follow the following algorithm to decide on a single proposal to "prepare".
+
+From a receiving node's perspective, at the end of the proposal phase:
+
+1. If `len(validProposals) == 0`, then do nothing and return.
+2. If there are some `validProposals`, then decide on which `proposal` to prepare:
+   1. For all `validProposals`, find `candidateProposal` such that `candidateProposal.proposerScore` is the minimum among all.
+   2. If my `state.TcBlock == nil`
+      1. Reset `state` and decide on the block in `candidateProposal`.
+   3. Else
+      1. If `candidateProposal.BlockHeader.ProposalCert.Round > state.TcRound`:
+         1. Reset `state` and decide on the block in `candidateProposal`.
+      2. Else if there is any `validProposals[i].BlockHeader == state.TcBlock` and `validProposals[i].BlockHeader.ProposalCert.Round >= state.TcBlock`
+         1. `state.TcRound = validProposals[i].BlockHeader.ProposalCert.Round`
+         2. `state.TcCert = validProposals[i].BlockHeader.ProposalCert`
+      3. Else: decide on no block (skip the round)
+
+### Preparing a Block
+
+TODO
 
 ## Transactions
 
@@ -282,4 +319,3 @@ TODO
 There are many optimizations that are left out in this implementation to make the scope approachable. These are listed here.
 
 - Block body segmentation: splitting transactions into batches for fine-grained pipelining.
--
