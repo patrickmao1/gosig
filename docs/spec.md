@@ -159,7 +159,7 @@ The paper does not suggest a hash function. We will use SHA3-256 for it's pseudo
 
 ### Verifiable Random Function
 
-VRF is used to randomly select block proposers. We implement a VRF module as the paper specifies.
+VRF is used to randomly for selecting block proposers. We implement a VRF module as the paper specifies.
 
 The initial `seed` is a random number that's hardcoded into every node. We use `initSeed = sha3("Gosig")`
 
@@ -189,18 +189,18 @@ type Blockchain interface {
 - Gossip interval = 500ms
 - Gossip degree = 3
 
-## Local State
+## Tentative Commit State
 
-Each node has a local state as specified by the paper.
+Each node has a locally managed state for recording uncommitted but tentatively committed blocks as specified by the paper.
 
 ```go
-type LocalState struct {
+type TcState struct {
     TcBlock *proto.BlockHeader
     TcRound int
     TcCert  *proto.Certificate
 }
 
-var state LocalState
+var state TcState
 ```
 
 ## Round State
@@ -285,6 +285,16 @@ For each received prepare message
 
 1. If the `phase != Prepared`, ignore the message
 2. Find `Prepare` -->
+
+### Round Synchronization
+
+The concensus process proceeds in rounds. A round consists of two stages: the proposal phase and the agreement phase. `roundDuration` is implicitly defined as `proposalStageDuration + agreementStageDuration`. The current round is defined as `round = (now - genesisTime) / roundDuration`. `nextRoundTime = genesisTime + (round + 1) * roundDuration`. Corrects node should behave according to the following rules:
+
+- Only perform round transition according to the node's local clock.
+- When round transition happens (round -> round + 1), the node should immediately abandon everything it's doing in the previous round and move to the new round.
+- When stage transition happens within a round (proposal stage -> agreement stage), the node should also immediately move to the next stage. This means it will derive the chosen proposal from the list of valid proposals it has at the transition time.
+
+Note that because the clocks are not perfectly synchronized, it is very likely that a node can receive Prepare messages while it thinks it's still in the proposal stage. The node doesn't need to immediately transition to agreement stage when this happens. This is ok because missing several gossip messages of Prepare doesn't matter at much. Prepare (or TC) messages have aggregated signatures, so messages later in the round will carry the effects of the earlier messages.
 
 ### Block Storage
 
