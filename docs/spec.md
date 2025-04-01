@@ -286,6 +286,29 @@ For each received prepare message
 1. If the `phase != Prepared`, ignore the message
 2. Find `Prepare` -->
 
+### Block Storage
+
+Block data is persisted into disk. goleveldb is used for this task. Storage layout is defined here:
+
+```plaintext
+"{blockHash}" -> block
+"head_block" -> (blockHash, roundCommitted)
+```
+
+### Catching Up on Missing Blocks
+
+From the consensus process it's easy to see that if a node does not have the latest committed block, then it cannot verify anything because it needs to know the latest seed to verify proposals.
+
+A node can discover that it doesn't have the latest committed block once it receives a `BlockProposal` in which the block height is greater than the node's local height + 1. In this case, the lagging node needs to catch up by querying peers for blocks `[height+1, proposal.block.height)`
+
+Peers to query are chosen randomly.
+
+1. Query X random peers asking for the missing range
+2. Peers respond with the range they have
+3. Download from the peer with the longest range
+4. Update the missing range
+5. Repeat from step 1 until head is updated to (proposal.block.height - 1)
+
 ## Transactions
 
 For transactions, we want to keep it as simple as possible because it's not in the scope of a consensus protocol. We do not implement a global transaction mempool. Instead, each node will have its own pool. For testing convenience, we implement a client that sends transactions to all nodes all at once so that it is guaranteed to be picked up by a random proposer in the next round.
@@ -320,7 +343,7 @@ message TransactionStatusRes {
 
 ### Background Block Data Dissemination
 
-Gosig separates the dissenmination of block headers and block data so that the latency-bound block proposal phase can be shortened and nodes can start sending Prepare while 
+Gosig separates the dissenmination of block headers and block data so that the latency-bound block proposal phase can be shortened and nodes can start sending Prepare while
 
 ## Benchmarking
 
