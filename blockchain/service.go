@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/sha3"
+	"google.golang.org/protobuf/proto"
 	"slices"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ var log = logrus.New()
 type Service struct {
 	db     *DB
 	txPool *TxPool
+	nw     *Network
 
 	cfg           *NodeConfig
 	genesis       *GenesisConfig
@@ -32,7 +34,7 @@ type Service struct {
 	proposals []*types.BlockProposal
 }
 
-func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
+func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool, nw *Network) *Service {
 	roundInterval := time.Duration(cfg.ProposalStageDurationMs + cfg.ProposalStageDurationMs)
 	return &Service{
 		cfg:           cfg,
@@ -40,11 +42,13 @@ func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool)
 		roundInterval: roundInterval,
 		db:            db,
 		txPool:        txPool,
+		nw:            nw,
 	}
 }
 
 func (s *Service) Start() error {
-	t := time.NewTicker(time.Until(s.nextRoundTime()))
+	nextRoundTime := s.nextRoundTime()
+	t := time.NewTicker(time.Until(nextRoundTime))
 	for {
 		<-t.C
 		s.rmu.Lock()
@@ -68,16 +72,16 @@ func (s *Service) Start() error {
 		s.rmu.Unlock()
 
 		// determine if I should propose
-		proposalScore, proposerProof := crypto.GenRNG(s.cfg.GetPrivKey(), s.rseed) // L^r = SIG_{l^{h}}(r^{h},Q^{h-1})
+		proposalScore, proposerProof := crypto.GenRNG(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^{h}}(r^{h},Q^{h-1})
 		if proposalScore < s.cfg.ProposalThreshold {
-			// propose a block
+			// build a block
 			headHash := head.Hash()
 			header := &types.BlockHeader{
 				Height:        head.Height + 1,
 				ParentHash:    headHash,
 				ProposerProof: proposerProof,
 			}
-			tcBlock, tcRound, pCert, err := s.db.GetTcState()
+			tcBlock, _, pCert, err := s.db.GetTcState()
 			if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
 				return err
 			}
@@ -101,8 +105,26 @@ func (s *Service) Start() error {
 				if err != nil {
 					return err
 				}
+				header.ProposalCert = pCert
 			}
 
+			// build & sign proposal
+			proposal := &types.BlockProposal{
+				Round:       s.round,
+				BlockHeader: header,
+			}
+			bs, err := proto.Marshal(proposal)
+			if err != nil {
+				return err
+			}
+			signed := &types.SignedMessage{
+				Sig:            crypto.Sign(s.cfg.MyPrivKey(), bs),
+				ValidatorIndex: s.cfg.MyValidatorIndex(),
+				MessageTypes:   &types.SignedMessage_Proposal{Proposal: proposal},
+			}
+
+			// broadcast
+			s.nw.Broadcast(signed, nextRoundTime)
 		}
 	}
 }

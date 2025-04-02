@@ -47,9 +47,10 @@ type NodeConfig struct {
 
 	// cached values
 	privKey *bls12381.Fr
+	myIndex *uint32
 }
 
-func (c *NodeConfig) GetPrivKey() *bls12381.Fr {
+func (c *NodeConfig) MyPrivKey() *bls12381.Fr {
 	if c.privKey != nil {
 		return c.privKey
 	}
@@ -59,4 +60,28 @@ func (c *NodeConfig) GetPrivKey() *bls12381.Fr {
 	}
 	c.privKey = bls12381.NewFr().FromBytes(privKey)
 	return c.privKey
+}
+
+func (c *NodeConfig) Me() *Validator {
+	if c.myIndex != nil {
+		return c.Validators[*c.myIndex]
+	}
+	myIP, err := getPrivateIP()
+	if err != nil {
+		log.Fatal("failed to get private ip", err)
+	}
+	for i, val := range c.Validators {
+		if val.IP == myIP.String() {
+			j := uint32(i)
+			c.myIndex = &j
+			return val
+		}
+	}
+	log.Fatal("my IP %s is not in the validator set", myIP)
+	return nil
+}
+
+func (c *NodeConfig) MyValidatorIndex() uint32 {
+	c.Me()
+	return *c.myIndex
 }

@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"fmt"
 	bls12381 "github.com/kilic/bls12-381"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
@@ -26,11 +27,9 @@ func (p *TxPool) AppendTx(tx *types.SignedTransaction) error {
 	if err != nil {
 		return err
 	}
-	sig, err := bls12381.NewG2().FromCompressed(tx.Sig)
-	if err != nil {
-		return err
+	if crypto.VerifySig(pub, txBytes, tx.Sig) {
+		return fmt.Errorf("invalid sig")
 	}
-	crypto.VerifySig(pub, txBytes, sig)
 
 	p.mu.Lock()
 	p.txs = append(p.txs, tx)

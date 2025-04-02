@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -41,22 +42,26 @@ func hashToG2(message []byte) *bls12381.PointG2 {
 }
 
 // Sign produces a BLS signature on a message using the provided key pair
-func Sign(privKey *bls12381.Fr, message []byte) *bls12381.PointG2 {
+func Sign(privKey *bls12381.Fr, message []byte) []byte {
 	g2 := bls12381.NewG2()
 	sig := g2.New()
 	g2.MulScalar(sig, hashToG2(message), privKey)
-	return sig
+	return g2.ToCompressed(sig)
 }
 
 // VerifySig checks if a signature is valid for a given message and public key
-func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig *bls12381.PointG2) bool {
+func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig []byte) bool {
 	e := bls12381.NewEngine()
 	g1 := bls12381.NewG1()
 	g2 := bls12381.NewG2()
 
 	// e(g1, signature) == e(publicKey, messagePoint)
 	negSignature := g2.New()
-	g2.Neg(negSignature, sig)
+	s, err := g2.FromCompressed(sig)
+	if err != nil {
+		return false
+	}
+	g2.Neg(negSignature, s)
 
 	e.AddPair(g1.One(), negSignature)
 	e.AddPair(pubKey, hashToG2(msg))
@@ -66,12 +71,17 @@ func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig *bls12381.PointG2) bool
 }
 
 // AggregateSignatures combines multiple signatures into a single signature
-func AggregateSignatures(sigs []*bls12381.PointG2) *bls12381.PointG2 {
+func AggregateSignatures(sigs [][]byte) *bls12381.PointG2 {
 	g2 := bls12381.NewG2()
-	aggSig := g2.New()
-	g2.Add(aggSig, g2.Zero(), sigs[0])
-	for i := 1; i < len(sigs); i++ {
-		g2.Add(aggSig, aggSig, sigs[i])
+	aggSig := g2.Zero()
+
+	for _, sig := range sigs {
+		s, err := g2.FromCompressed(sig)
+		if err != nil {
+			log.Errorf("failed to build g2 point from sig %x", sig)
+			return nil
+		}
+		g2.Add(aggSig, aggSig, s)
 	}
 	return aggSig
 }

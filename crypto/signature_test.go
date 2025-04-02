@@ -55,7 +55,7 @@ func TestSignatureAggregation(t *testing.T) {
 	valid2 := VerifySig(pubKey2, msg2, sig2)
 	require.True(t, valid2)
 
-	sigs := []*bls12381.PointG2{sig1, sig2}
+	sigs := [][]byte{sig1, sig2}
 	aggSig := AggregateSignatures(sigs)
 
 	pubKeys := []*bls12381.PointG1{pubKey1, pubKey2}
