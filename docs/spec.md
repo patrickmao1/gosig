@@ -193,14 +193,19 @@ type Blockchain interface {
 
 Each node has a locally managed state for recording uncommitted but tentatively committed blocks as specified by the paper.
 
-```go
-type TcState struct {
-    TcBlock *proto.BlockHeader
-    TcRound int
-    TcCert  *proto.Certificate
+```protobuf
+// internally used messages, for serialization convenience
+message TcState {
+  BlockHeader header = 1;
+  uint32 round = 2;
+  Certificate prepare_cert = 3;
 }
+```
 
-var state TcState
+TcState is persisted into the DB
+
+```plaintext
+"tc_state" -> TcState
 ```
 
 ## Round State
@@ -301,8 +306,12 @@ Note that because the clocks are not perfectly synchronized, it is very likely t
 Block data is persisted into disk. goleveldb is used for this task. Storage layout is defined here:
 
 ```plaintext
-"{blockHash}" -> block
-"head_block" -> (blockHash, roundCommitted)
+"block/{blockHash}/header" -> block
+"block/{blockHash}/transactions" -> transaction hashes
+"block/{blockHash}/p_cert" -> prepare certificate
+"block/{blockHash}/tc_cert" -> tc certificate
+"block/head" -> blockHash
+"transaction/{txHash}" -> transcation
 ```
 
 ### Catching Up on Missing Blocks
@@ -319,9 +328,20 @@ Peers to query are chosen randomly.
 4. Update the missing range
 5. Repeat from step 1 until head is updated to (proposal.block.height - 1)
 
-## Transactions
+## Transactions & Accounts
 
-For transactions, we want to keep it as simple as possible because it's not in the scope of a consensus protocol. We do not implement a global transaction mempool. Instead, each node will have its own pool. For testing convenience, we implement a client that sends transactions to all nodes all at once so that it is guaranteed to be picked up by a random proposer in the next round.
+For transactions, we want to keep it as simple as possible because it's not in the scope of a consensus protocol. We implement a simple payment system where users can send money to each other. We do not implement a global transaction mempool. Instead, each node will have its own pool. For testing convenience, we implement a client that sends transactions to all nodes all at once so that it is guaranteed to be picked up by a random proposer in the next round.
+
+A user of the blockchain is identified by their public key and so is their account on the chain. An account can only hold one type of state is their balance. A transaction is valid if:
+
+1. The sender has enough money
+2. The transaction is correctly signed
+
+Each user's account state is saved in the DB as
+
+```plaintext
+"{pubKey}" -> balance
+```
 
 The node should implement a GRPC server to receive transactions. For testing and benchmark purposes, there are also RPCs for querying transaction states and statistics.
 

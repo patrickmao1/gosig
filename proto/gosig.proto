@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package hydfs;
+
+option go_package = "./types";
+
+// Transaction represents a simple payment of money. `from`` and `to` are
+// pubkeys of users
+message Transaction {
+  bytes from = 1;
+  bytes to = 2;
+  uint64 amount = 3;
+}
+
+message SignedTransaction {
+  Transaction tx = 1;
+  bytes sig = 2;
+}
+
+message TransactionHashes {
+  repeated bytes tx_hashes = 1;
+  bytes root = 2; // root = hash(tx_hashes), for convenience
+}
+
+message SignedTransactions { repeated SignedTransaction txs = 1; }
+
+message BlockHeader {
+  uint32 height = 1;
+  bytes parent_hash = 2;
+  Certificate proposal_cert = 3;
+  // sign(privKey, Q^h), the preimage of the proposer score L^r
+  bytes proposer_proof = 4;
+  // a flat hash of all transaction hashes in this block.
+  // i.e. hash(hash(tx1) || hash(tx2) || ... || hash(txN))
+  bytes tx_root = 5;
+}
+
+message SignedMessage {
+  bytes sig = 1;
+  uint32 validator_index = 2;
+  oneof message_types {
+    BlockProposal proposal = 3;
+    Prepare prepare = 4;
+    TentativeCommit tc = 5;
+  }
+}
+
+message SignedMessages {
+  repeated SignedMessage msgs = 1;
+}
+
+message BlockProposal {
+  uint32 round = 1;
+  BlockHeader block_header = 2;
+}
+
+message Prepare {
+  bytes block_hash = 1;
+  uint32 block_height = 2;
+}
+
+message TentativeCommit {
+  bytes block_hash = 1;
+  uint32 block_height = 2;
+}
+
+message Certificate {
+  bytes agg_sig = 1; // aggregated signatures
+  repeated uint32 sig_counts =
+      2; // an array of how many times each validator provided the signatures
+  uint32 round = 3; // the round in which this certificate is formed
+}
+
+// internally used messages, for serialization convenience
+message TcState {
+  bytes block_hash = 1;
+  uint32 round = 2;
+}
