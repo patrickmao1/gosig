@@ -3,7 +3,6 @@ package crypto
 import (
 	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -41,27 +40,21 @@ func hashToG2(message []byte) *bls12381.PointG2 {
 	return messagePoint
 }
 
-// Sign produces a BLS signature on a message using the provided key pair
-func Sign(privKey *bls12381.Fr, message []byte) []byte {
+func Sign(privKey *bls12381.Fr, message []byte) *bls12381.PointG2 {
 	g2 := bls12381.NewG2()
 	sig := g2.New()
 	g2.MulScalar(sig, hashToG2(message), privKey)
-	return g2.ToCompressed(sig)
+	return sig
 }
 
-// VerifySig checks if a signature is valid for a given message and public key
-func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig []byte) bool {
+func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig *bls12381.PointG2) bool {
 	e := bls12381.NewEngine()
 	g1 := bls12381.NewG1()
 	g2 := bls12381.NewG2()
 
 	// e(g1, signature) == e(publicKey, messagePoint)
 	negSignature := g2.New()
-	s, err := g2.FromCompressed(sig)
-	if err != nil {
-		return false
-	}
-	g2.Neg(negSignature, s)
+	g2.Neg(negSignature, sig)
 
 	e.AddPair(g1.One(), negSignature)
 	e.AddPair(pubKey, hashToG2(msg))
@@ -70,24 +63,16 @@ func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig []byte) bool {
 	return result
 }
 
-// AggregateSignatures combines multiple signatures into a single signature
-func AggregateSignatures(sigs [][]byte) *bls12381.PointG2 {
+func AggSigs(sigs []*bls12381.PointG2) *bls12381.PointG2 {
 	g2 := bls12381.NewG2()
 	aggSig := g2.Zero()
-
 	for _, sig := range sigs {
-		s, err := g2.FromCompressed(sig)
-		if err != nil {
-			log.Errorf("failed to build g2 point from sig %x", sig)
-			return nil
-		}
-		g2.Add(aggSig, aggSig, s)
+		g2.Add(aggSig, aggSig, sig)
 	}
 	return aggSig
 }
 
-// AggregatePublicKeys combines multiple public keys into a single key
-func AggregatePublicKeys(pubKeys []*bls12381.PointG1) *bls12381.PointG1 {
+func AggPubKeys(pubKeys []*bls12381.PointG1) *bls12381.PointG1 {
 	if len(pubKeys) == 0 {
 		panic("no public keys to aggregate")
 	}
@@ -100,9 +85,7 @@ func AggregatePublicKeys(pubKeys []*bls12381.PointG1) *bls12381.PointG1 {
 	return aggKey
 }
 
-// VerifyAggregateSignature verifies an aggregated signature against multiple
-// public keys and their corresponding messages
-func VerifyAggregateSignature(
+func VerifyAggSig(
 	publicKeys []*bls12381.PointG1, messages [][]byte, aggSig *bls12381.PointG2) bool {
 
 	if len(publicKeys) != len(messages) {
