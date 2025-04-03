@@ -1,8 +1,0 @@
-time="2025-04-03T03:43:32Z" level=info msg="start sending gossips: interval 300ms, fanout 2, peers [0x40000b0d00 0x40000b0d40 0x40000b0d80 0x40000b0dc0 0x40000b0e00]"
-time="2025-04-03T03:43:32Z" level=info msg="network: listening on 0.0.0.0:9090"
-time="2025-04-03T03:43:32Z" level=info msg="grpc listening on 0.0.0.0:8080"
-time="2025-04-03T03:43:41Z" level=info msg="got message hello from 0"
-time="2025-04-03T03:43:41Z" level=info msg="got message hello from 3"
-time="2025-04-03T03:43:41Z" level=info msg="got message hello from 4"
-time="2025-04-03T03:43:42Z" level=info msg="got message hello from 2"
-time="2025-04-03T03:43:42Z" level=info msg="got message hello from 1"
