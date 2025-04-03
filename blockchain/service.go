@@ -83,64 +83,74 @@ func (s *Service) Start() error {
 
 		s.rmu.Unlock()
 
-		// determine if I should propose
-		proposalScore, proposerProof := crypto.GenRNG(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^{h}}(r^{h},Q^{h-1})
-		if proposalScore < s.cfg.ProposalThreshold {
-			// build a block
-			headHash := head.Hash()
-			header := &types.BlockHeader{
-				Height:        head.Height + 1,
-				ParentHash:    headHash,
-				ProposerProof: proposerProof,
-			}
-			tcBlock, _, pCert, err := s.db.GetTcState()
-			if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
-				return err
-			}
-			var txs []*types.SignedTransaction
-			if errors.Is(err, leveldb.ErrNotFound) {
-				// no tc block found, we propose a new block
-				txs = s.txPool.Dump()
-				header.TxRoot = computeTxRoot(txs)
-				headTcCert, err := s.db.GetTcCert(headHash)
-				if err != nil {
-					return err
-				}
-				header.ProposalCert = headTcCert
-			} else {
-				// Sanity check. If these aren't the same then I wouldn't have TC'd that block
-				if !bytes.Equal(tcBlock.ParentHash, head.ParentHash) {
-					log.Panicf("inconsistent parent hashes! tcBlock %v, headBlock %v", tcBlock, head)
-				}
-				// I have previously TC'd a block, but I never committed it. Re-propose the block.
-				txs, header.TxRoot, err = s.db.GetBlockTxs(tcBlock.Hash())
-				if err != nil {
-					return err
-				}
-				header.ProposalCert = pCert
-			}
-
-			// build & sign proposal
-			proposal := &types.BlockProposal{
-				Round:       s.round,
-				BlockHeader: header,
-			}
-			bs, err := proto.Marshal(proposal)
-			if err != nil {
-				return err
-			}
-			signed := &types.SignedMessage{
-				Sig:            crypto.SignBytes(s.cfg.MyPrivKey(), bs),
-				ValidatorIndex: s.cfg.MyValidatorIndex(),
-				MessageTypes:   &types.SignedMessage_Proposal{Proposal: proposal},
-				Deadline:       nextRoundTime.UnixMilli(),
-			}
-
-			// broadcast
-			proposalMsgKey := fmt.Sprintf("propose-%d", s.round)
-			s.msgBuf.Put(proposalMsgKey, signed)
+		err = s.proposeIfChosen(head, nextRoundTime)
+		if err != nil {
+			log.Errorln(err)
 		}
 	}
+}
+
+func (s *Service) proposeIfChosen(head *types.BlockHeader, nextRoundTime time.Time) error {
+	// determine if I should propose
+	proposalScore, proposerProof := crypto.GenRNG(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^{h}}(r^{h},Q^{h-1})
+	if proposalScore >= s.cfg.ProposalThreshold {
+		return nil
+	}
+	// build a block
+	headHash := head.Hash()
+	header := &types.BlockHeader{
+		Height:        head.Height + 1,
+		ParentHash:    headHash,
+		ProposerProof: proposerProof,
+	}
+	tcBlock, _, pCert, err := s.db.GetTcState()
+	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
+		return err
+	}
+	var txs []*types.SignedTransaction
+	if errors.Is(err, leveldb.ErrNotFound) {
+		// no tc block found, we propose a new block
+		txs = s.txPool.Dump()
+		header.TxRoot = computeTxRoot(txs)
+		headTcCert, err := s.db.GetTcCert(headHash)
+		if err != nil {
+			return err
+		}
+		header.ProposalCert = headTcCert
+	} else {
+		// Sanity check. If these aren't the same then I wouldn't have TC'd that block
+		if !bytes.Equal(tcBlock.ParentHash, head.ParentHash) {
+			log.Panicf("inconsistent parent hashes! tcBlock %v, headBlock %v", tcBlock, head)
+		}
+		// I have previously TC'd a block, but I never committed it. Re-propose the block.
+		txs, header.TxRoot, err = s.db.GetBlockTxs(tcBlock.Hash())
+		if err != nil {
+			return err
+		}
+		header.ProposalCert = pCert
+	}
+
+	// build & sign proposal
+	proposal := &types.BlockProposal{
+		Round:       s.round,
+		BlockHeader: header,
+	}
+	bs, err := proto.Marshal(proposal)
+	if err != nil {
+		return err
+	}
+	signed := &types.SignedMessage{
+		Sig:            crypto.SignBytes(s.cfg.MyPrivKey(), bs),
+		ValidatorIndex: s.cfg.MyValidatorIndex(),
+		MessageTypes:   &types.SignedMessage_Proposal{Proposal: proposal},
+		Deadline:       nextRoundTime.UnixMilli(),
+	}
+
+	// broadcast
+	proposalMsgKey := fmt.Sprintf("propose-%d", s.round)
+	s.msgBuf.Put(proposalMsgKey, signed)
+
+	return nil
 }
 
 func (s *Service) getCurrentRound() int {
