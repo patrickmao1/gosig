@@ -41,8 +41,8 @@ message SignedMessage {
   oneof message_types {
     bytes bytes = 3; // arbitrary bytes for testing purpose
     BlockProposal proposal = 4;
-    Prepare prepare = 5;
-    TentativeCommit tc = 6;
+    PrepareCertificate prepare = 5;
+    TentativeCommitCertificate tc = 6;
   }
   int64 deadline = 7; // deadline after which the message will no longer be relayed
 }
@@ -56,9 +56,19 @@ message BlockProposal {
   BlockHeader block_header = 2;
 }
 
+message PrepareCertificate {
+  Prepare msg = 1;
+  Certificate cert = 2; // can be a partial certificate (e.g. signed by less than 2/3)
+}
+
 message Prepare {
   bytes block_hash = 1;
   uint32 block_height = 2;
+}
+
+message TentativeCommitCertificate {
+  TentativeCommit msg = 1;
+  Certificate cert = 2; // can be a partial certificate (e.g. signed by less than 2/3)
 }
 
 message TentativeCommit {
@@ -68,8 +78,7 @@ message TentativeCommit {
 
 message Certificate {
   bytes agg_sig = 1; // aggregated signatures
-  repeated uint32 sig_counts =
-      2; // an array of how many times each validator provided the signatures
+  repeated uint32 sig_counts = 2; // an array of how many times each validator provided the signatures
   uint32 round = 3; // the round in which this certificate is formed
 }
 

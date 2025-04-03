@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"net"
+	"slices"
 	"time"
 )
 
@@ -18,8 +19,8 @@ func main() {
 type TestService struct {
 	types.UnimplementedNetworkTestServer
 	network   *blockchain.Network
-	msgs      []string
-	processed map[[32]byte]bool
+	msgs      *blockchain.MsgBuffer
+	processed []string
 }
 
 func NewTestService() *TestService {
@@ -30,10 +31,11 @@ func NewTestService() *TestService {
 		{IP: "172.16.0.4", Port: 9090},
 		{IP: "172.16.0.5", Port: 9090},
 	}
-	network := blockchain.NewNetwork(2, 300*time.Millisecond, peers)
+	msgBuf := blockchain.NewMsgBuffer()
+	network := blockchain.NewNetwork(msgBuf, 2, 300*time.Millisecond, peers)
 	return &TestService{
-		network:   network,
-		processed: make(map[[32]byte]bool),
+		network: network,
+		msgs:    msgBuf,
 	}
 }
 
@@ -55,18 +57,17 @@ func (s *TestService) Run() {
 
 func (s *TestService) handleMessage(msg *types.SignedMessage) {
 	b := msg.GetBytes()
-	msgId := blockchain.ComputeMsgId(msg)
-	if _, ok := s.processed[msgId]; ok {
+	if slices.Contains(s.processed, string(b)) {
 		return
 	}
-	s.processed[msgId] = true
 	log.Infof("got message %s", b)
-	s.network.Broadcast(msg)
-	s.msgs = append(s.msgs, string(b))
+	s.msgs.Put(string(b), msg)
+	s.processed = append(s.processed, string(msg.GetBytes()))
 }
 
 func (s *TestService) GetMsgs(_ context.Context, _ *types.GetReq) (*types.GetRes, error) {
-	return &types.GetRes{Values: s.msgs}, nil
+	slices.Sort(s.processed)
+	return &types.GetRes{Values: s.processed}, nil
 }
 
 func (s *TestService) Broadcast(_ context.Context, req *types.BroadcastReq) (*types.BroadcastRes, error) {
@@ -74,6 +75,6 @@ func (s *TestService) Broadcast(_ context.Context, req *types.BroadcastReq) (*ty
 		MessageTypes: &types.SignedMessage_Bytes{Bytes: []byte(req.Value)},
 		Deadline:     time.Now().Add(time.Second).UnixMilli(),
 	}
-	s.network.Broadcast(msg)
+	s.msgs.Put(string(msg.GetBytes()), msg)
 	return &types.BroadcastRes{}, nil
 }

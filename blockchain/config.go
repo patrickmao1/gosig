@@ -33,7 +33,7 @@ type NodeConfig struct {
 	DbPath                   string       `yaml:"db_path"`
 	PrivKeyHex               string       `yaml:"priv_key_hex"`
 	ProposalThreshold        uint32       `yaml:"proposal_threshold"`
-	GossipInterval           int          `yaml:"gossip_interval"`
+	GossipIntervalMs         int          `yaml:"gossip_interval"`
 	GossipDegree             int          `yaml:"gossip_degree"`
 	ProposalStageDurationMs  int64        `yaml:"proposal_stage_duration_ms"`
 	AgreementStateDurationMs int64        `yaml:"agreement_state_duration_ms"`

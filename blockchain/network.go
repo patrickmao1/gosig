@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/patrickmao1/gosig/types"
-	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
 	"math/rand"
 	"net"
@@ -13,6 +12,10 @@ import (
 	"sync"
 	"time"
 )
+
+type MessageBuffer interface {
+	List() []*types.SignedMessage
+}
 
 type Network struct {
 	MyIP   net.IP
@@ -22,16 +25,16 @@ type Network struct {
 	fanout   int
 	interval time.Duration
 
-	msgs map[[32]byte]*types.SignedMessage
+	msgs MessageBuffer
 	mu   sync.Mutex
 }
 
-func NewNetwork(fanout int, interval time.Duration, vals []*Validator) *Network {
+func NewNetwork(msgPool MessageBuffer, fanout int, interval time.Duration, vals []*Validator) *Network {
 	n := &Network{
 		peers:    vals,
 		fanout:   fanout,
 		interval: interval,
-		msgs:     make(map[[32]byte]*types.SignedMessage),
+		msgs:     msgPool,
 	}
 	var err error
 	n.MyIP, err = getPrivateIP()
@@ -48,28 +51,18 @@ func NewNetwork(fanout int, interval time.Duration, vals []*Validator) *Network 
 	return n
 }
 
-func (n *Network) Broadcast(msg *types.SignedMessage) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	msgId := ComputeMsgId(msg)
-	if _, ok := n.msgs[msgId]; ok {
-		return
+func isBetterMsg(oldMsg, newMsg *types.SignedMessage) bool {
+	switch newMsg.MessageTypes.(type) {
+	case *types.SignedMessage_Proposal, *types.SignedMessage_Bytes:
+		return false
+	case *types.SignedMessage_Prepare:
+		return newMsg.GetPrepare().Cert.NumSigned() > oldMsg.GetPrepare().Cert.NumSigned()
+	case *types.SignedMessage_Tc:
+		return newMsg.GetTc().Cert.NumSigned() > oldMsg.GetTc().Cert.NumSigned()
+	default:
+		log.Errorf("unknown msg type")
+		return false
 	}
-	n.msgs[msgId] = msg
-}
-
-func ComputeMsgId(msg *types.SignedMessage) [32]byte {
-	clone := proto.Clone(msg).(*types.SignedMessage)
-	// removing validator dependent fields from msg id computation so that
-	// if the content is the same, the ids are the same
-	clone.Sig = nil
-	clone.ValidatorIndex = 0
-	b, err := proto.Marshal(clone)
-	if err != nil {
-		log.Panic(err)
-	}
-	return sha3.Sum256(b)
 }
 
 func (n *Network) StartGossip() {
@@ -79,32 +72,11 @@ func (n *Network) StartGossip() {
 		ts := <-t
 		log.Debugf("start new gossip round: ts %s", ts)
 
-		n.mu.Lock()
-		// drop deadline-exceeded messages
-		for id, msg := range n.msgs {
-			if msg.DDL().Before(time.Now()) {
-				delete(n.msgs, id)
-			}
-		}
-		n.mu.Unlock()
+		msgs := n.msgs.List()
 
-		if len(n.msgs) == 0 {
+		if len(msgs) == 0 {
 			log.Debugf("no messages in buffer")
 			continue
-		}
-
-		for _, msg := range n.msgs {
-			log.Infof("sending messages %v", msg)
-		}
-
-		// serialize msgs
-		msgs := &types.SignedMessages{}
-		for _, msg := range n.msgs {
-			msgs.Msgs = append(msgs.Msgs, msg)
-		}
-		msgsBytes, err := proto.Marshal(msgs)
-		if err != nil {
-			log.Fatal("unserializable message found in broadcast queue")
 		}
 
 		// send to randomized peers every time
@@ -126,7 +98,12 @@ func (n *Network) StartGossip() {
 					log.Errorln(err)
 					return
 				}
-				err = n.send(conn, msgsBytes)
+				bs, err := proto.Marshal(&types.SignedMessages{Msgs: msgs})
+				if err != nil {
+					log.Errorln(err)
+					return
+				}
+				err = n.send(conn, bs)
 				if err != nil {
 					log.Errorln(err)
 				}

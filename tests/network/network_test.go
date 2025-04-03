@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"slices"
 	"testing"
 	"time"
 )
@@ -71,8 +70,6 @@ func TestParallel(t *testing.T) {
 	for i, client := range clients {
 		res, err := client.GetMsgs(ctx, &types.GetReq{})
 		require.NoError(t, err, i)
-		resMsgs := res.Values
-		slices.Sort(resMsgs)
-		require.EqualValues(t, msgs, resMsgs, i)
+		require.EqualValues(t, msgs, res.Values, i)
 	}
 }

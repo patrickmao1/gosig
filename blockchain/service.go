@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	"github.com/sirupsen/logrus"
@@ -32,10 +33,20 @@ type Service struct {
 	seed      []byte
 	rseed     []byte // round concatenated with seed
 	proposals []*types.BlockProposal
+
+	// messages to gossip
+	msgBuf *MsgBuffer
 }
 
-func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool, nw *Network) *Service {
+func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
 	roundInterval := time.Duration(cfg.ProposalStageDurationMs + cfg.ProposalStageDurationMs)
+	msgPool := NewMsgBuffer()
+	nw := NewNetwork(
+		msgPool,
+		cfg.GossipDegree,
+		time.Duration(cfg.GossipIntervalMs)*time.Millisecond,
+		cfg.Validators,
+	)
 	return &Service{
 		cfg:           cfg,
 		genesis:       genesis,
@@ -43,6 +54,7 @@ func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool,
 		db:            db,
 		txPool:        txPool,
 		nw:            nw,
+		msgBuf:        msgPool,
 	}
 }
 
@@ -125,7 +137,8 @@ func (s *Service) Start() error {
 			}
 
 			// broadcast
-			s.nw.Broadcast(signed)
+			proposalMsgKey := fmt.Sprintf("propose-%d", s.round)
+			s.msgBuf.Put(proposalMsgKey, signed)
 		}
 	}
 }

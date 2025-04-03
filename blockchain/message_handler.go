@@ -49,12 +49,12 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 	return nil
 }
 
-func (s *Service) handlePrepare(prep *types.Prepare) error {
-	// TODO
+func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
+
 	return nil
 }
 
-func (s *Service) handleTC(tc *types.TentativeCommit) error {
+func (s *Service) handleTC(tc *types.TentativeCommitCertificate) error {
 	// TODO
 	return nil
 }

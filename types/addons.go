@@ -27,3 +27,14 @@ func (h *BlockHeader) Hash() []byte {
 func (m *SignedMessage) DDL() time.Time {
 	return time.UnixMilli(m.Deadline)
 }
+
+// NumSigned returns the number of validators who has provided a sig
+func (c *Certificate) NumSigned() int {
+	cnt := 0
+	for _, count := range c.SigCounts {
+		if count > 0 {
+			cnt++
+		}
+	}
+	return cnt
+}
