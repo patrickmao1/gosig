@@ -39,10 +39,12 @@ message SignedMessage {
   bytes sig = 1;
   uint32 validator_index = 2;
   oneof message_types {
-    BlockProposal proposal = 3;
-    Prepare prepare = 4;
-    TentativeCommit tc = 5;
+    bytes bytes = 3; // arbitrary bytes for testing purpose
+    BlockProposal proposal = 4;
+    Prepare prepare = 5;
+    TentativeCommit tc = 6;
   }
+  int64 deadline = 7; // deadline after which the message will no longer be relayed
 }
 
 message SignedMessages {

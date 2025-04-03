@@ -4,25 +4,34 @@ import (
 	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
 	"golang.org/x/crypto/sha3"
+	mathrand "math/rand"
 )
 
-// GenKeyPair creates a new BLS key pair
-func GenKeyPair() (priv *bls12381.Fr, pub *bls12381.PointG1) {
-	// Initialize the curve
+func GenKeyPairFromSeed(seed int64) (priv *bls12381.Fr, pub *bls12381.PointG1) {
 	g1 := bls12381.NewG1()
 	fr := bls12381.NewFr()
-	// Generate a random secret key
 	privKey := fr.Zero()
-	if _, err := privKey.Rand(rand.Reader); err != nil {
+	rng := mathrand.New(mathrand.NewSource(seed))
+	if _, err := privKey.Rand(rng); err != nil {
 		panic("failed to generate random secret key")
 	}
-	// Compute public key as g1 * secret key
 	pubKey := g1.New()
 	g1.MulScalar(pubKey, g1.One(), privKey)
 	return privKey, pubKey
 }
 
-// hashToG2 hashes a message to a point on PointG2 using Keccak256
+func GenKeyPair() (priv *bls12381.Fr, pub *bls12381.PointG1) {
+	g1 := bls12381.NewG1()
+	fr := bls12381.NewFr()
+	privKey := fr.Zero()
+	if _, err := privKey.Rand(rand.Reader); err != nil {
+		panic("failed to generate random secret key")
+	}
+	pubKey := g1.New()
+	g1.MulScalar(pubKey, g1.One(), privKey)
+	return privKey, pubKey
+}
+
 func hashToG2(message []byte) *bls12381.PointG2 {
 	h := sha3.NewLegacyKeccak256()
 	_, err := h.Write(message)

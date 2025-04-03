@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
 	log "github.com/sirupsen/logrus"
 )
@@ -24,21 +23,6 @@ func mustBytesToG1(b []byte) *bls12381.PointG1 {
 
 func bytes2Fr(b []byte) *bls12381.Fr {
 	return bls12381.NewFr().FromBytes(b)
-}
-
-func GenKeyPairBytes() (priv *bls12381.Fr, pub *bls12381.PointG1) {
-	// Initialize the curve
-	g1 := bls12381.NewG1()
-	fr := bls12381.NewFr()
-	// Generate a random secret key
-	privKey := fr.Zero()
-	if _, err := privKey.Rand(rand.Reader); err != nil {
-		panic("failed to generate random secret key")
-	}
-	// Compute public key as g1 * secret key
-	pubKey := g1.New()
-	g1.MulScalar(pubKey, g1.One(), privKey)
-	return privKey, pubKey
 }
 
 func SignBytes(privKey []byte, message []byte) []byte {

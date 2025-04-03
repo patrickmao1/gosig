@@ -2,7 +2,6 @@ package blockchain
 
 import (
 	"fmt"
-	bls12381 "github.com/kilic/bls12-381"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	"google.golang.org/protobuf/proto"
@@ -19,15 +18,11 @@ func NewTxPool() *TxPool {
 }
 
 func (p *TxPool) AppendTx(tx *types.SignedTransaction) error {
-	pub, err := bls12381.NewG1().FromCompressed(tx.Tx.From)
-	if err != nil {
-		return err
-	}
 	txBytes, err := proto.Marshal(tx.Tx)
 	if err != nil {
 		return err
 	}
-	if crypto.VerifySig(pub, txBytes, tx.Sig) {
+	if crypto.VerifySigBytes(tx.Tx.From, txBytes, tx.Sig) {
 		return fmt.Errorf("invalid sig")
 	}
 

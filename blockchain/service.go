@@ -118,13 +118,14 @@ func (s *Service) Start() error {
 				return err
 			}
 			signed := &types.SignedMessage{
-				Sig:            crypto.Sign(s.cfg.MyPrivKey(), bs),
+				Sig:            crypto.SignBytes(s.cfg.MyPrivKey(), bs),
 				ValidatorIndex: s.cfg.MyValidatorIndex(),
 				MessageTypes:   &types.SignedMessage_Proposal{Proposal: proposal},
+				Deadline:       nextRoundTime.UnixMilli(),
 			}
 
 			// broadcast
-			s.nw.Broadcast(signed, nextRoundTime)
+			s.nw.Broadcast(signed)
 		}
 	}
 }

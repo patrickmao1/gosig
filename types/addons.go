@@ -3,6 +3,7 @@ package types
 import (
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
+	"time"
 )
 
 func (tx *Transaction) Hash() []byte {
@@ -21,4 +22,8 @@ func (h *BlockHeader) Hash() []byte {
 	}
 	hash := sha3.Sum256(bs)
 	return hash[:]
+}
+
+func (m *SignedMessage) DDL() time.Time {
+	return time.UnixMilli(m.Deadline)
 }

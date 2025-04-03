@@ -3,7 +3,6 @@ package blockchain
 import (
 	"encoding/hex"
 	"fmt"
-	bls12381 "github.com/kilic/bls12-381"
 )
 
 type Validator struct {
@@ -12,10 +11,10 @@ type Validator struct {
 	Port      int    `yaml:"port"`
 
 	// cached values
-	pubKey *bls12381.PointG1
+	pubKey []byte
 }
 
-func (v *Validator) GetPubKey() *bls12381.PointG1 {
+func (v *Validator) GetPubKey() []byte {
 	if v.pubKey != nil {
 		return v.pubKey
 	}
@@ -23,12 +22,7 @@ func (v *Validator) GetPubKey() *bls12381.PointG1 {
 	if err != nil {
 		panic(err)
 	}
-	pubKey, err := bls12381.NewG1().FromCompressed(pubKeyBytes)
-	if err != nil {
-		panic(err)
-	}
-	v.pubKey = pubKey
-	return pubKey
+	return pubKeyBytes
 }
 
 func (v *Validator) GetURL() string {
@@ -46,19 +40,19 @@ type NodeConfig struct {
 	Validators               []*Validator `yaml:"validators"`
 
 	// cached values
-	privKey *bls12381.Fr
+	privKey []byte
 	myIndex *uint32
 }
 
-func (c *NodeConfig) MyPrivKey() *bls12381.Fr {
+func (c *NodeConfig) MyPrivKey() []byte {
 	if c.privKey != nil {
 		return c.privKey
 	}
-	privKey, err := hex.DecodeString(c.PrivKeyHex)
+	var err error
+	c.privKey, err = hex.DecodeString(c.PrivKeyHex)
 	if err != nil {
 		panic(err)
 	}
-	c.privKey = bls12381.NewFr().FromBytes(privKey)
 	return c.privKey
 }
 

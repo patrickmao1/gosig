@@ -1,0 +1,59 @@
+services:
+  node1:
+    build: .
+    volumes:
+      - ./tests/network/docker_volumes/node1:/app/runtime
+    ports:
+      - 8081:8080
+      - 9090:9090
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.1
+
+  node2:
+    build: .
+    ports:
+      - 8082:8080
+    volumes:
+      - ./tests/network/docker_volumes/node2:/app/runtime
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.2
+
+  node3:
+    build: .
+    ports:
+      - 8083:8080
+    volumes:
+      - ./tests/network/docker_volumes/node3:/app/runtime
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.3
+
+  node4:
+    build: .
+    ports:
+      - 8084:8080
+    volumes:
+      - ./tests/network/docker_volumes/node4:/app/runtime
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.4
+
+  node5:
+    build: .
+    ports:
+      - 8085:8080
+    volumes:
+      - ./tests/network/docker_volumes/node5:/app/runtime
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.5
+
+networks:
+  mynet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.0.0/16
+          gateway: 172.16.0.254

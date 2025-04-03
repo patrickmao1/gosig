@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package hydfs;
+
+option go_package = "./types";
+
+service NetworkTest {
+    rpc GetMsgs(GetReq) returns (GetRes);
+    rpc Broadcast(BroadcastReq) returns (BroadcastRes);
+}
+
+message GetReq {}
+
+message GetRes {
+    repeated string values = 1;
+}
+
+message BroadcastReq {
+    string value = 1;
+}
+
+message BroadcastRes {}

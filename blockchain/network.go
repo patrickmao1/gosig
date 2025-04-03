@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/patrickmao1/gosig/types"
+	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
 	"math/rand"
 	"net"
@@ -13,47 +14,62 @@ import (
 	"time"
 )
 
-type msgWithDeadline struct {
-	msg *types.SignedMessage
-	ddl time.Time
-}
-
 type Network struct {
-	myIP     net.IP
-	myPort   int
+	MyIP   net.IP
+	MyPort int
+
 	peers    []*Validator
 	fanout   int
 	interval time.Duration
-	msgs     []*msgWithDeadline
-	mu       sync.Mutex
+
+	msgs map[[32]byte]*types.SignedMessage
+	mu   sync.Mutex
 }
 
 func NewNetwork(fanout int, interval time.Duration, vals []*Validator) *Network {
 	n := &Network{
+		peers:    vals,
 		fanout:   fanout,
 		interval: interval,
+		msgs:     make(map[[32]byte]*types.SignedMessage),
 	}
 	var err error
-	n.myIP, err = getPrivateIP()
+	n.MyIP, err = getPrivateIP()
 	if err != nil {
 		log.Fatal("failed to get private ip", err)
 	}
+	// find myself in the vals list and assign my port
 	for _, val := range vals {
-		if val.IP == n.myIP.String() {
-			n.myPort = val.Port
+		if val.IP == n.MyIP.String() {
+			n.MyPort = val.Port
+			break
 		}
-		n.peers = append(n.peers, val)
 	}
 	return n
 }
 
-func (n *Network) Broadcast(msg *types.SignedMessage, ddl time.Time) {
+func (n *Network) Broadcast(msg *types.SignedMessage) {
 	n.mu.Lock()
-	n.msgs = append(n.msgs, &msgWithDeadline{
-		msg: msg,
-		ddl: ddl,
-	})
-	n.mu.Unlock()
+	defer n.mu.Unlock()
+
+	msgId := ComputeMsgId(msg)
+	if _, ok := n.msgs[msgId]; ok {
+		return
+	}
+	n.msgs[msgId] = msg
+}
+
+func ComputeMsgId(msg *types.SignedMessage) [32]byte {
+	clone := proto.Clone(msg).(*types.SignedMessage)
+	// removing validator dependent fields from msg id computation so that
+	// if the content is the same, the ids are the same
+	clone.Sig = nil
+	clone.ValidatorIndex = 0
+	b, err := proto.Marshal(clone)
+	if err != nil {
+		log.Panic(err)
+	}
+	return sha3.Sum256(b)
 }
 
 func (n *Network) StartGossip() {
@@ -61,20 +77,18 @@ func (n *Network) StartGossip() {
 	t := time.Tick(n.interval)
 	for {
 		ts := <-t
-		log.Infof("start new gossip round: ts %s", ts)
-		n.mu.Lock()
-		newMsgs := make([]*msgWithDeadline, 0)
+		log.Debugf("start new gossip round: ts %s", ts)
 
+		n.mu.Lock()
 		// drop deadline-exceeded messages
-		for _, msg := range n.msgs {
-			if time.Now().Before(msg.ddl) {
-				newMsgs = append(newMsgs, msg)
+		for id, msg := range n.msgs {
+			if msg.DDL().Before(time.Now()) {
+				delete(n.msgs, id)
 			}
 		}
-		n.msgs = newMsgs
 		n.mu.Unlock()
 
-		if len(newMsgs) == 0 {
+		if len(n.msgs) == 0 {
 			log.Debugf("no messages in buffer")
 			continue
 		}
@@ -85,8 +99,8 @@ func (n *Network) StartGossip() {
 
 		// serialize msgs
 		msgs := &types.SignedMessages{}
-		for _, msg := range newMsgs {
-			msgs.Msgs = append(msgs.Msgs, msg.msg)
+		for _, msg := range n.msgs {
+			msgs.Msgs = append(msgs.Msgs, msg)
 		}
 		msgsBytes, err := proto.Marshal(msgs)
 		if err != nil {
@@ -102,9 +116,9 @@ func (n *Network) StartGossip() {
 		done := make(chan struct{})
 		var wg sync.WaitGroup
 
-		for _, val := range n.peers[:n.fanout] {
+		for _, peer := range n.peers[:n.fanout] {
 			wg.Add(1)
-			url := val.GetURL()
+			url := peer.GetURL()
 			go func() {
 				defer wg.Done()
 				conn, err := n.open(url)
@@ -126,7 +140,7 @@ func (n *Network) StartGossip() {
 
 		select {
 		case <-done:
-			log.Infof("gossip round done: start_ts %s", ts)
+			log.Debugf("gossip round done: start_ts %s", ts)
 			cancel()
 			continue
 		case <-ctx.Done():
@@ -167,7 +181,7 @@ func (n *Network) send(conn *net.UDPConn, b []byte) error {
 type MessageHandler func(msg *types.SignedMessage)
 
 func (n *Network) Listen(handleMsg MessageHandler) error {
-	address, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", n.myPort))
+	address, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", n.MyPort))
 	if err != nil {
 		log.Fatal("Error resolving address:", err)
 	}
@@ -177,7 +191,7 @@ func (n *Network) Listen(handleMsg MessageHandler) error {
 		os.Exit(1)
 	}
 	defer conn.Close()
-	log.Infof("network: listening on 0.0.0.0:%d", n.myPort)
+	log.Infof("network: listening on 0.0.0.0:%d", n.MyPort)
 
 	r := bufio.NewReader(conn)
 

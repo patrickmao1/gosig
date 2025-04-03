@@ -2,7 +2,6 @@ package blockchain
 
 import (
 	"fmt"
-	bls12381 "github.com/kilic/bls12-381"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	"google.golang.org/protobuf/proto"
@@ -81,9 +80,5 @@ func (s *Service) checkSig(msg *types.SignedMessage) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	sig, err := bls12381.NewG2().FromCompressed(msg.Sig)
-	if err != nil {
-		return false, err
-	}
-	return crypto.VerifySig(pubKey, msgBytes, sig), nil
+	return crypto.VerifySigBytes(pubKey, msgBytes, msg.Sig), nil
 }
