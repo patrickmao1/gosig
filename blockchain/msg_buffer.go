@@ -21,6 +21,19 @@ func (b *MsgBuffer) Put(key string, msg *types.SignedMessage) {
 	b.msgs[key] = msg
 }
 
+func (b *MsgBuffer) Get(key string) (*types.SignedMessage, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	msg, ok := b.msgs[key]
+	return msg, ok
+}
+
+func (b *MsgBuffer) Tx(doInTx func(buf *MsgBuffer) error) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return doInTx(b)
+}
+
 func (b *MsgBuffer) Has(key string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

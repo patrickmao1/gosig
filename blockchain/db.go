@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var tcStateKey = []byte("tc_state")
+var tcBlockKey = []byte("tc_block")
 var headKey = []byte("head_block")
 
 func blockHeaderKey(blockHash []byte) []byte {
@@ -62,6 +62,14 @@ func (db *DB) GetHeadBlock() (*types.BlockHeader, error) {
 	return head, err
 }
 
+func (db *DB) PutTcCert(blockHash []byte, cert *types.Certificate) error {
+	bs, err := proto.Marshal(cert)
+	if err != nil {
+		return err
+	}
+	return db.Put(blockTcCertKey(blockHash), bs, nil)
+}
+
 func (db *DB) GetTcCert(blockHash []byte) (*types.Certificate, error) {
 	bytes, err := db.Get(blockTcCertKey(blockHash), nil)
 	if err != nil {
@@ -72,24 +80,33 @@ func (db *DB) GetTcCert(blockHash []byte) (*types.Certificate, error) {
 	return cert, err
 }
 
-func (db *DB) GetTcState() (*types.BlockHeader, uint32, *types.Certificate, error) {
-	bs, err := db.Get(tcStateKey, nil)
+func (db *DB) GetTcBlock() (*types.BlockHeader, *types.Certificate, error) {
+	blockHash, err := db.Get(tcBlockKey, nil)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, nil, err
 	}
-	tc := &types.TcState{}
-	err = proto.Unmarshal(bs, tc)
 
-	blockHash := tc.BlockHash
 	h, err := db.GetBlockHeader(blockHash)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, nil, err
 	}
 	tcCert, err := db.GetTcCert(blockHash)
 	if err != nil {
-		return nil, 0, nil, err
+		return nil, nil, err
 	}
-	return h, tc.Round, tcCert, err
+	return h, tcCert, err
+}
+
+func (db *DB) PutTcBlock(blockHash []byte, certificate *types.Certificate) error {
+	bs, err := proto.Marshal(certificate)
+	if err != nil {
+		return err
+	}
+	err = db.Put(blockTcCertKey(blockHash), bs, nil)
+	if err != nil {
+		return err
+	}
+	return db.Put(tcBlockKey, blockHash, nil)
 }
 
 func (db *DB) GetBlockTxHashes(blockHash []byte) (*types.TransactionHashes, error) {

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/patrickmao1/gosig/crypto"
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
 	"time"
@@ -37,4 +38,8 @@ func (c *Certificate) NumSigned() int {
 		}
 	}
 	return cnt
+}
+
+func (p *BlockProposal) Score() uint32 {
+	return crypto.GenRNGWithProof(p.BlockHeader.ProposerProof)
 }

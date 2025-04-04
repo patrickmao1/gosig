@@ -3,6 +3,7 @@ package blockchain
 import (
 	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 type Validator struct {
@@ -78,4 +79,8 @@ func (c *NodeConfig) Me() *Validator {
 func (c *NodeConfig) MyValidatorIndex() uint32 {
 	c.Me()
 	return *c.myIndex
+}
+
+func (c *NodeConfig) ProposalStageDuration() time.Duration {
+	return time.Duration(c.ProposalStageDurationMs) * time.Millisecond
 }
