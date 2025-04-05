@@ -19,7 +19,7 @@ func (s *Service) handleMessage(msg *types.SignedMessage) {
 		return
 	}
 
-	switch msg.MessageTypes.(type) {
+	switch msg.Message.(type) {
 	case *types.SignedMessage_Proposal:
 		err = s.handleProposal(msg.ValidatorIndex, msg.GetProposal())
 	case *types.SignedMessage_Prepare:
@@ -58,13 +58,14 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 
 func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
 	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
+		// merge prepare with my prepare state of this round
 		var err error
 		mergedCert := prep.Cert
-		// merge prepare with my prepare state of this round
 		myPrep, ok := buf.Get(s.prepareKey())
 		if !ok {
 			// no prep found means either I'm not prepared for this round
 			// or my round ended and I deleted it
+			log.Debugf("no prepare found for %s", s.prepareKey())
 			return nil
 		}
 		mergedCert, err = mergeCerts(myPrep.GetPrepare().Cert, prep.Cert)
@@ -79,6 +80,38 @@ func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
 			},
 		}
 		buf.Put(s.prepareKey(), clone)
+
+		// TODO move this outside of the tx
+		if clone.GetPrepare().Cert.NumSigned() >= s.cfg.Quorum() {
+			// initiate a tc if I haven't yet
+			if !buf.Has(s.tcKey()) {
+				tc := &types.TentativeCommit{
+					BlockHash:   myPrep.GetPrepare().Msg.BlockHash,
+					BlockHeight: myPrep.GetPrepare().Msg.BlockHeight,
+				}
+				bs, err := proto.Marshal(tc)
+				if err != nil {
+					return err
+				}
+				sig := crypto.SignBytes(s.cfg.privKey, bs)
+				sigCounts := make([]uint32, len(s.cfg.Validators))
+				tcWithCert := &types.TentativeCommitCertificate{
+					Msg: tc,
+					Cert: &types.Certificate{
+						AggSig:    sig,
+						SigCounts: sigCounts,
+						Round:     myPrep.GetPrepare().Cert.Round,
+					},
+				}
+				msg := &types.SignedMessage{
+					Sig:            nil,
+					ValidatorIndex: 0,
+					Message:        &types.SignedMessage_Tc{Tc: tcWithCert},
+					Deadline:       s.nextRoundTime().UnixMilli(),
+				}
+				buf.Put(s.tcKey(), msg)
+			}
+		}
 		return nil
 	})
 }
@@ -137,7 +170,7 @@ func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 
 func (s *Service) checkSig(msg *types.SignedMessage) (bool, error) {
 	var message proto.Message
-	switch msg.MessageTypes.(type) {
+	switch msg.Message.(type) {
 	case *types.SignedMessage_Proposal:
 		message = msg.GetProposal()
 	case *types.SignedMessage_Prepare:

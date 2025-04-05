@@ -76,6 +76,10 @@ func (c *NodeConfig) Me() *Validator {
 	return nil
 }
 
+func (c *NodeConfig) Quorum() int {
+	return len(c.Validators)*2/3 + 1
+}
+
 func (c *NodeConfig) MyValidatorIndex() uint32 {
 	c.Me()
 	return *c.myIndex

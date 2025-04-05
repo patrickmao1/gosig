@@ -184,7 +184,7 @@ func (s *Service) proposeIfChosen() error {
 	signed := &types.SignedMessage{
 		Sig:            crypto.SignBytes(s.cfg.MyPrivKey(), bs),
 		ValidatorIndex: s.cfg.MyValidatorIndex(),
-		MessageTypes:   &types.SignedMessage_Proposal{Proposal: proposal},
+		Message:        &types.SignedMessage_Proposal{Proposal: proposal},
 		Deadline:       s.roundProposalEndTime().UnixMilli(),
 	}
 
@@ -284,7 +284,7 @@ func (s *Service) prepare(block *types.BlockHeader, nextRoundTime time.Time) err
 	signedMsg := &types.SignedMessage{
 		Sig:            crypto.SignBytes(s.cfg.privKey, bs),
 		ValidatorIndex: s.cfg.MyValidatorIndex(),
-		MessageTypes:   &types.SignedMessage_Prepare{Prepare: prepCert},
+		Message:        &types.SignedMessage_Prepare{Prepare: prepCert},
 		Deadline:       nextRoundTime.UnixMilli(),
 	}
 	s.msgBuf.Put(s.prepareKey(), signedMsg)
@@ -327,3 +327,4 @@ func computeTxRoot(signedTxs []*types.SignedTransaction) []byte {
 
 func (s *Service) proposalKey(vi uint32) string { return fmt.Sprintf("proposal-%d-%d", s.round, vi) }
 func (s *Service) prepareKey() string           { return fmt.Sprintf("prepare-%d", s.round) }
+func (s *Service) tcKey() string                { return fmt.Sprintf("tc-%d", s.round) }

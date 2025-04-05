@@ -51,20 +51,6 @@ func NewNetwork(msgPool MessageBuffer, fanout int, interval time.Duration, vals 
 	return n
 }
 
-func isBetterMsg(oldMsg, newMsg *types.SignedMessage) bool {
-	switch newMsg.MessageTypes.(type) {
-	case *types.SignedMessage_Proposal, *types.SignedMessage_Bytes:
-		return false
-	case *types.SignedMessage_Prepare:
-		return newMsg.GetPrepare().Cert.NumSigned() > oldMsg.GetPrepare().Cert.NumSigned()
-	case *types.SignedMessage_Tc:
-		return newMsg.GetTc().Cert.NumSigned() > oldMsg.GetTc().Cert.NumSigned()
-	default:
-		log.Errorf("unknown msg type")
-		return false
-	}
-}
-
 func (n *Network) StartGossip() {
 	log.Infof("start sending gossips: interval %s, fanout %d, peers %v", n.interval, n.fanout, n.peers)
 	t := time.Tick(n.interval)
