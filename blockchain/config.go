@@ -30,15 +30,25 @@ func (v *Validator) GetURL() string {
 	return fmt.Sprintf("%s:%d", v.IP, v.Port)
 }
 
+type Validators []*Validator
+
+func (vs Validators) PubKeys() [][]byte {
+	var ret [][]byte
+	for _, val := range vs {
+		ret = append(ret, val.GetPubKey())
+	}
+	return ret
+}
+
 type NodeConfig struct {
-	DbPath                   string       `yaml:"db_path"`
-	PrivKeyHex               string       `yaml:"priv_key_hex"`
-	ProposalThreshold        uint32       `yaml:"proposal_threshold"`
-	GossipIntervalMs         int          `yaml:"gossip_interval"`
-	GossipDegree             int          `yaml:"gossip_degree"`
-	ProposalStageDurationMs  int64        `yaml:"proposal_stage_duration_ms"`
-	AgreementStateDurationMs int64        `yaml:"agreement_state_duration_ms"`
-	Validators               []*Validator `yaml:"validators"`
+	DbPath                   string     `yaml:"db_path"`
+	PrivKeyHex               string     `yaml:"priv_key_hex"`
+	ProposalThreshold        uint32     `yaml:"proposal_threshold"`
+	GossipIntervalMs         int        `yaml:"gossip_interval"`
+	GossipDegree             int        `yaml:"gossip_degree"`
+	ProposalStageDurationMs  int64      `yaml:"proposal_stage_duration_ms"`
+	AgreementStateDurationMs int64      `yaml:"agreement_state_duration_ms"`
+	Validators               Validators `yaml:"validators"`
 
 	// cached values
 	privKey []byte

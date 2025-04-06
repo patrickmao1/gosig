@@ -52,11 +52,30 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 	s.rmu.Unlock()
 
 	// relay the newly received proposal
-	s.msgBuf.Put() //TODO
+	//s.msgBuf.Put() //TODO
 	return nil
 }
 
 func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
+	s.rmu.RLock()
+	if prep.Cert.Round != s.round {
+		s.rmu.RUnlock()
+		log.Warnf("ignoring prepare: prepare.round %d != local round %d", prep.Cert.Round, s.round)
+		return nil
+	}
+	s.rmu.RUnlock()
+
+	// make sure the (partial) certificate is valid
+	cert := prep.GetCert()
+	bs, err := proto.Marshal(prep.Msg)
+	if err != nil {
+		return err
+	}
+	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
+	if !pass {
+		return fmt.Errorf("got prepare with invalid cert: %+v", prep)
+	}
+
 	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
 		// merge prepare with my prepare state of this round
 		var err error
@@ -64,7 +83,7 @@ func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
 		myPrep, ok := buf.Get(s.prepareKey())
 		if !ok {
 			// no prep found means either I'm not prepared for this round
-			// or my round ended and I deleted it
+			// or my round has ended and I have deleted it
 			log.Debugf("no prepare found for %s", s.prepareKey())
 			return nil
 		}
@@ -81,7 +100,7 @@ func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
 		}
 		buf.Put(s.prepareKey(), clone)
 
-		// TODO move this outside of the tx
+		// TODO maybe move this outside of the tx
 		if clone.GetPrepare().Cert.NumSigned() >= s.cfg.Quorum() {
 			// initiate a tc if I haven't yet
 			if !buf.Has(s.tcKey()) {
@@ -116,6 +135,15 @@ func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
 	})
 }
 
+func isSigSuperSet(a, b []uint32) bool {
+	for i := range a {
+		if a[i] == 0 && b[i] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
 	if a == nil || b == nil {
 		return nil, fmt.Errorf("mergeCerts: nil cert")
@@ -123,6 +151,15 @@ func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
 	if a.Round != b.Round {
 		return nil, fmt.Errorf("mergeCerts: round not equal: a %v, b %v", a, b)
 	}
+
+	// optimization: if one cert is a superset of another, we could just use the superset without merging
+	if isSigSuperSet(a.SigCounts, b.SigCounts) {
+		return a, nil
+	}
+	if isSigSuperSet(b.SigCounts, a.SigCounts) {
+		return b, nil
+	}
+
 	g2 := bls12381.NewG2()
 	aSig, err := g2.FromCompressed(a.AggSig)
 	if err != nil {
