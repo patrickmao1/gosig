@@ -3,7 +3,9 @@ package crypto
 import (
 	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/sha3"
+	"math/big"
 	mathrand "math/rand"
 )
 
@@ -62,10 +64,10 @@ func VerifySig(pubKey *bls12381.PointG1, msg []byte, sig *bls12381.PointG2) bool
 	g2 := bls12381.NewG2()
 
 	// e(g1, signature) == e(publicKey, messagePoint)
-	negSignature := g2.New()
-	g2.Neg(negSignature, sig)
+	negSig := g2.New()
+	g2.Neg(negSig, sig)
 
-	e.AddPair(g1.One(), negSignature)
+	e.AddPair(g1.One(), negSig)
 	e.AddPair(pubKey, hashToG2(msg))
 	result := e.Check()
 
@@ -81,35 +83,28 @@ func AggSigs(sigs []*bls12381.PointG2) *bls12381.PointG2 {
 	return aggSig
 }
 
-func AggPubKeys(pubKeys []*bls12381.PointG1) *bls12381.PointG1 {
+func AggPubKeys(pubKeys []*bls12381.PointG1, multiplicities []uint32) *bls12381.PointG1 {
 	if len(pubKeys) == 0 {
 		panic("no public keys to aggregate")
 	}
-	g1 := bls12381.NewG1()
-	aggKey := g1.New()
-	g1.Add(aggKey, g1.Zero(), pubKeys[0])
-	for i := 1; i < len(pubKeys); i++ {
-		g1.Add(aggKey, aggKey, pubKeys[i])
+	if len(pubKeys) != len(multiplicities) {
+		log.Panicf("len(pubKeys) != len(multiplicities): %d != %d", len(pubKeys), len(multiplicities))
 	}
-	return aggKey
+	g1 := bls12381.NewG1()
+	aggPubKey := g1.Zero()
+	for i, pubKey := range pubKeys {
+		multiPubKey := g1.New()
+		multiplicity := new(big.Int).SetUint64(uint64(multiplicities[i]))
+		g1.MulScalarBig(multiPubKey, pubKey, multiplicity)
+		g1.Add(aggPubKey, aggPubKey, multiPubKey)
+	}
+	return aggPubKey
 }
 
-func VerifyAggSig(
-	publicKeys []*bls12381.PointG1, messages [][]byte, aggSig *bls12381.PointG2) bool {
-
-	if len(publicKeys) != len(messages) {
-		panic("number of public keys must match number of messages")
+func VerifyAggSig(pubKeys []*bls12381.PointG1, multiplicities []uint32, msg []byte, aggSig *bls12381.PointG2) bool {
+	if len(pubKeys) != len(multiplicities) {
+		log.Panicf("len(pubKeys) != len(multiplicities): %d != %d", len(pubKeys), len(multiplicities))
 	}
-	e := bls12381.NewEngine()
-	g2 := bls12381.NewG2()
-	// Add pairs of (publicKey_i, H(message_i))
-	for i := 0; i < len(publicKeys); i++ {
-		e.AddPair(publicKeys[i], hashToG2(messages[i]))
-	}
-	// Add the negative of the signature with generator point
-	g1 := bls12381.NewG1()
-	negSig := g2.New()
-	g2.Neg(negSig, aggSig)
-	e.AddPair(g1.One(), negSig)
-	return e.Check()
+	aggPubKey := AggPubKeys(pubKeys, multiplicities)
+	return VerifySig(aggPubKey, msg, aggSig)
 }

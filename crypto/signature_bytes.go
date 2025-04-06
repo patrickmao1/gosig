@@ -34,21 +34,20 @@ func VerifySigBytes(pubKey, msg, sig []byte) bool {
 	return VerifySig(mustBytesToG1(pubKey), msg, mustBytesToG2(sig))
 }
 
-func AggSigBytes(sigs [][]byte) []byte {
-	var sigG2s []*bls12381.PointG2
-	g2 := bls12381.NewG2()
-	for _, sig := range sigs {
-		sigG2s = append(sigG2s, mustBytesToG2(sig))
-	}
-	aggSig := AggSigs(sigG2s)
-	return g2.ToCompressed(aggSig)
-}
-
-func AggPubKeysBytes(pubKeys [][]byte) []byte {
+func AggPubKeysBytes(pubKeys [][]byte, multiplicities []uint32) []byte {
 	var keys []*bls12381.PointG1
 	g1 := bls12381.NewG1()
 	for _, pubKey := range pubKeys {
 		keys = append(keys, mustBytesToG1(pubKey))
 	}
-	return g1.ToCompressed(AggPubKeys(keys))
+	return g1.ToCompressed(AggPubKeys(keys, multiplicities))
+}
+
+func VerifyAggSigBytes(pubKeys [][]byte, multiplicities []uint32, msg, aggSig []byte) bool {
+	s := mustBytesToG2(aggSig)
+	var keys []*bls12381.PointG1
+	for _, pubKey := range pubKeys {
+		keys = append(keys, mustBytesToG1(pubKey))
+	}
+	return VerifyAggSig(keys, multiplicities, msg, s)
 }
