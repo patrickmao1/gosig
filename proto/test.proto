@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package hydfs;
+package gosig;
 
 option go_package = "./types";
 
