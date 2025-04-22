@@ -16,8 +16,12 @@ import (
 	"time"
 )
 
-type MessageBuffer interface {
+type OutboundMsgPool interface {
 	List() []*types.Envelope
+}
+
+type InboundMsgPool interface {
+	Enqueue(msgs []*types.Envelope)
 }
 
 type Network struct {
@@ -28,16 +32,18 @@ type Network struct {
 	fanout   int
 	interval time.Duration
 
-	msgs MessageBuffer
-	mu   sync.Mutex
+	out OutboundMsgPool
+	in  InboundMsgPool
+	mu  sync.Mutex
 }
 
-func NewNetwork(msgPool MessageBuffer, fanout int, interval time.Duration, vals []*Validator) *Network {
+func NewNetwork(out OutboundMsgPool, in InboundMsgPool, fanout int, interval time.Duration, vals []*Validator) *Network {
 	n := &Network{
 		peers:    vals,
 		fanout:   fanout,
 		interval: interval,
-		msgs:     msgPool,
+		out:      out,
+		in:       in,
 	}
 	var err error
 	n.MyIP, err = getPrivateIP()
@@ -56,12 +62,13 @@ func NewNetwork(msgPool MessageBuffer, fanout int, interval time.Duration, vals 
 
 func (n *Network) StartGossip() {
 	log.Infof("start sending gossips: interval %s, fanout %d, peers %+v", n.interval, n.fanout, n.peers)
+	go n.listen()
 	t := time.Tick(n.interval)
 	for {
 		ts := <-t
 		log.Debugf("start new gossip round: ts %s", ts)
 
-		msgs := n.msgs.List()
+		msgs := n.out.List()
 
 		if len(msgs) == 0 {
 			log.Debugf("no messages in buffer")
@@ -92,7 +99,6 @@ func (n *Network) StartGossip() {
 					log.Errorln(err)
 					return
 				}
-				log.Infof("marshalled bytes %x", bs)
 				err = n.send(conn, bs)
 				if err != nil {
 					log.Errorln(err)
@@ -147,9 +153,7 @@ func (n *Network) send(conn *net.UDPConn, b []byte) error {
 	return nil
 }
 
-type MessageHandler func(msg *types.Envelope)
-
-func (n *Network) Listen(handleMsg MessageHandler) error {
+func (n *Network) listen() {
 	address, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", n.MyPort))
 	if err != nil {
 		log.Fatal("Error resolving address:", err)
@@ -166,24 +170,24 @@ func (n *Network) Listen(handleMsg MessageHandler) error {
 
 	for {
 		b := make([]byte, 8)
-		n, err := io.ReadFull(r, b)
+		read, err := io.ReadFull(r, b)
 		if err != nil {
 			log.Infoln("error reading message len prefix:", err)
 			continue
 		}
-		if n != 8 {
-			log.Errorf("error reading message: expected read 8, actual read %d", n)
+		if read != 8 {
+			log.Errorf("error reading message: expected read 8, actual read %d", read)
 			continue
 		}
 		l := binary.BigEndian.Uint64(b)
 		bs := make([]byte, l)
-		n, err = io.ReadFull(r, bs)
+		read, err = io.ReadFull(r, bs)
 		if err != nil {
 			log.Errorln("error reading message:", err)
 			continue
 		}
-		if uint64(n) != l {
-			log.Errorf("error reading message: expected read %d, actual read %d", l, n)
+		if uint64(read) != l {
+			log.Errorf("error reading message: expected read %d, actual read %d", l, read)
 			continue
 		}
 
@@ -193,9 +197,8 @@ func (n *Network) Listen(handleMsg MessageHandler) error {
 			log.Errorf("error unmarshalling incoming msg: %s, read bytes %x", err.Error(), bs)
 			continue
 		}
-		for _, m := range ms.Msgs {
-			go handleMsg(m)
-		}
+
+		n.in.Enqueue(ms.Msgs)
 	}
 }
 

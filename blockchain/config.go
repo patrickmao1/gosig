@@ -82,7 +82,7 @@ func (c *NodeConfig) Me() *Validator {
 			return val
 		}
 	}
-	log.Fatal("my IP %s is not in the validator set", myIP)
+	log.Fatalf("my IP %s is not in the validator set", myIP)
 	return nil
 }
 

@@ -9,6 +9,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func (s *Service) startProcessingMsgs() error {
+	log.Infoln("Starting processing messages")
+	for {
+		msgs := s.inMsgs.DequeueAll() // blocking if no msg
+		for _, msg := range msgs {
+			// TODO maybe parallelize
+			s.handleMessage(msg)
+		}
+	}
+}
+
 func (s *Service) handleMessage(signedMsg *types.Envelope) {
 	pass, err := s.checkSig(signedMsg)
 	if err != nil {
@@ -42,8 +53,10 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 		log.Warnf("received proposal for round %d but current round is %d", prop.Round, s.round)
 		return nil
 	}
-	if prop.BlockHeader.Height != s.head.Height {
+	if prop.BlockHeader.Height > s.head.Height+1 {
+		log.Warnf("received proposal block (%d) > head block + 1 (%d)", prop.BlockHeader.Height, s.head.Height+1)
 		go s.runCatchUpRoutine()
+		// We don't put back the proposal to queue because we expect to receive it again from gossip
 	}
 	// check proposal proof
 	if !s.isValidProposal(vi, prop) {
@@ -51,11 +64,12 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 		return nil
 	}
 	s.rmu.Lock()
-	s.proposals = append(s.proposals, prop)
+	s.proposals[vi] = prop
 	s.rmu.Unlock()
 
 	// relay the newly received proposal
-	//s.msgBuf.Put() //TODO
+	msg := &types.Message{Message: &types.Message_Proposal{Proposal: prop}}
+	s.outMsgs.Put(s.proposalKey(vi), msg)
 	return nil
 }
 
@@ -74,7 +88,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 		return fmt.Errorf("failed to handle prepare msg: %s", err.Error())
 	}
 
-	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
+	return s.outMsgs.Tx(func(buf *OutboundMsgBuffer) error {
 		myPrepMsg, ok := buf.Get(s.prepareKey())
 		if !ok {
 			// No prep found means either I'm not prepared for this round
@@ -148,7 +162,7 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 		return fmt.Errorf("failed to handle TC msg: %s", err.Error())
 	}
 
-	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
+	return s.outMsgs.Tx(func(buf *OutboundMsgBuffer) error {
 		// The paper specifies that TC msgs can be handled as soon as I have prepared something.
 		// This is for pipelining the Prepare and TC stages. I should process a TC msg if the TC
 		// msg's cert is correct and I have a matching P msg regardless whether I have received

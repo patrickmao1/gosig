@@ -32,12 +32,13 @@ type Service struct {
 	rmu       sync.RWMutex
 	round     uint32
 	seed      []byte
-	rseed     []byte // round concatenated with seed
-	proposals []*types.BlockProposal
+	rseed     []byte                          // round concatenated with seed
+	proposals map[uint32]*types.BlockProposal // key is val index
 	head      *types.BlockHeader
 
-	// messages to gossip
-	msgBuf *MsgBuffer
+	// gossip messages
+	outMsgs *OutboundMsgBuffer
+	inMsgs  *InboundMsgBuffer
 
 	// catch up routine state
 	catchUpRunning atomic.Bool
@@ -45,9 +46,13 @@ type Service struct {
 
 func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
 	roundInterval := time.Duration(cfg.ProposalStageDurationMs + cfg.ProposalStageDurationMs)
-	msgBuf := NewMsgBuffer(cfg.MyPrivKey(), cfg.MyValidatorIndex())
+
+	outbound := NewOutboundMsgBuffer(cfg.MyPrivKey(), cfg.MyValidatorIndex())
+	inbound := NewInboundMsgBuffer(cfg.Validators)
+
 	nw := NewNetwork(
-		msgBuf,
+		outbound,
+		inbound,
 		cfg.GossipDegree,
 		time.Duration(cfg.GossipIntervalMs)*time.Millisecond,
 		cfg.Validators,
@@ -59,11 +64,17 @@ func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool)
 		db:            db,
 		txPool:        txPool,
 		nw:            nw,
-		msgBuf:        msgBuf,
+		outMsgs:       outbound,
+		inMsgs:        inbound,
+		proposals:     make(map[uint32]*types.BlockProposal),
 	}
 }
 
 func (s *Service) Start() error {
+	log.Infoln("Starting blockchain service")
+
+	go s.nw.StartGossip()
+
 	nextRoundTime := s.nextRoundTime()
 	t := time.NewTicker(time.Until(nextRoundTime))
 	for {
@@ -194,7 +205,7 @@ func (s *Service) proposeIfChosen() error {
 	}
 
 	// broadcast
-	s.msgBuf.Put(s.proposalKey(s.cfg.MyValidatorIndex()), msg)
+	s.outMsgs.Put(s.proposalKey(s.cfg.MyValidatorIndex()), msg)
 
 	return nil
 }
@@ -206,12 +217,13 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 	}
 
 	// find the proposal with the lowest score
-	minProposal := s.proposals[0]
-	for _, proposal := range s.proposals {
-		if proposal.Score() < minProposal.Score() {
-			minProposal = proposal
+	minProposalVi := uint32(0)
+	for vi, proposal := range s.proposals {
+		if proposal.Score() < s.proposals[minProposalVi].Score() {
+			minProposalVi = vi
 		}
 	}
+	minProposal := s.proposals[minProposalVi]
 
 	tcBlock, pCert, err := s.db.GetTcState()
 	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
@@ -273,7 +285,7 @@ func (s *Service) prepare(blockHash []byte) error {
 		Message:  &types.Message_Prepare{Prepare: prepCert},
 		Deadline: s.nextRoundTime().UnixMilli(),
 	}
-	s.msgBuf.Put(s.prepareKey(), signedMsg)
+	s.outMsgs.Put(s.prepareKey(), signedMsg)
 	return nil
 }
 
@@ -293,7 +305,7 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 		Message:  &types.Message_Tc{Tc: tcWithCert},
 		Deadline: s.nextRoundTime().UnixMilli(),
 	}
-	s.msgBuf.Put(s.tcKey(), signedMsg)
+	s.outMsgs.Put(s.tcKey(), signedMsg)
 
 	err = s.db.PutTcCert(blockHash, cert)
 	if err != nil {
@@ -305,6 +317,8 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 }
 
 func (s *Service) commit(blockHash []byte) error {
+	log.Infof("committing block %x", blockHash)
+
 	// TODO do commit stuff
 
 	return s.db.Delete(tcBlockKey, nil)
@@ -342,6 +356,7 @@ func (s *Service) runCatchUpRoutine() {
 		return
 	}
 	s.catchUpRunning.Store(true)
+	log.Infof("running catch up routine")
 
 	// TODO
 

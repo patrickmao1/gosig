@@ -44,13 +44,14 @@ func TestNetwork(t *testing.T) {
 	_, err := clients[0].Broadcast(ctx, &types.BroadcastReq{Value: msg})
 	require.NoError(t, err)
 
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 
 	for i, client := range clients {
+		log.Infof("get msg from node %d", i+1)
 		res, err := client.GetMsgs(ctx, &types.GetReq{})
-		require.NoError(t, err, i)
-		require.Len(t, res.Values, 1)
-		require.Equal(t, msg, res.Values[0])
+		require.NoError(t, err, i+1)
+		require.Len(t, res.Values, 1, i+1)
+		require.Equal(t, msg, res.Values[0], i+1)
 	}
 }
 
