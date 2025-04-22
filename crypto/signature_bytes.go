@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
 	log "github.com/sirupsen/logrus"
 )
@@ -23,6 +24,24 @@ func mustBytesToG1(b []byte) *bls12381.PointG1 {
 
 func bytes2Fr(b []byte) *bls12381.Fr {
 	return bls12381.NewFr().FromBytes(b)
+}
+
+func GenKeyPairBytesFromSeed(seed int64) (priv, pub []byte) {
+	privkey, pubkey := GenKeyPairFromSeed(seed)
+	g1 := bls12381.NewG1()
+	return privkey.ToBytes(), g1.ToCompressed(pubkey)
+}
+
+func GenKeyPairBytes() (priv, pub []byte) {
+	g1 := bls12381.NewG1()
+	fr := bls12381.NewFr()
+	privkey := fr.Zero()
+	if _, err := privkey.Rand(rand.Reader); err != nil {
+		panic("failed to generate random secret key")
+	}
+	pubkey := g1.New()
+	g1.MulScalar(pubkey, g1.One(), privkey)
+	return privkey.ToBytes(), g1.ToCompressed(pubkey)
 }
 
 func SignBytes(privKey []byte, message []byte) []byte {

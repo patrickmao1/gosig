@@ -3,18 +3,21 @@ package blockchain
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"github.com/patrickmao1/gosig/types"
 	"google.golang.org/protobuf/proto"
+	"io"
 	"math/rand"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 )
 
 type MessageBuffer interface {
-	List() []*types.SignedMessage
+	List() []*types.Envelope
 }
 
 type Network struct {
@@ -52,7 +55,7 @@ func NewNetwork(msgPool MessageBuffer, fanout int, interval time.Duration, vals 
 }
 
 func (n *Network) StartGossip() {
-	log.Infof("start sending gossips: interval %s, fanout %d, peers %v", n.interval, n.fanout, n.peers)
+	log.Infof("start sending gossips: interval %s, fanout %d, peers %+v", n.interval, n.fanout, n.peers)
 	t := time.Tick(n.interval)
 	for {
 		ts := <-t
@@ -84,11 +87,12 @@ func (n *Network) StartGossip() {
 					log.Errorln(err)
 					return
 				}
-				bs, err := proto.Marshal(&types.SignedMessages{Msgs: msgs})
+				bs, err := proto.Marshal(&types.Envelopes{Msgs: msgs})
 				if err != nil {
 					log.Errorln(err)
 					return
 				}
+				log.Infof("marshalled bytes %x", bs)
 				err = n.send(conn, bs)
 				if err != nil {
 					log.Errorln(err)
@@ -126,7 +130,9 @@ func (n *Network) open(url string) (*net.UDPConn, error) {
 }
 
 func (n *Network) send(conn *net.UDPConn, b []byte) error {
-	b = append(b, 0x00)
+	lb := make([]byte, 8)
+	binary.BigEndian.PutUint64(lb, uint64(len(b)))
+	b = slices.Concat(lb, b)
 	w := bufio.NewWriter(conn)
 
 	_, err := w.Write(b)
@@ -141,7 +147,7 @@ func (n *Network) send(conn *net.UDPConn, b []byte) error {
 	return nil
 }
 
-type MessageHandler func(msg *types.SignedMessage)
+type MessageHandler func(msg *types.Envelope)
 
 func (n *Network) Listen(handleMsg MessageHandler) error {
 	address, err := net.ResolveUDPAddr("udp", fmt.Sprintf("0.0.0.0:%d", n.MyPort))
@@ -159,16 +165,32 @@ func (n *Network) Listen(handleMsg MessageHandler) error {
 	r := bufio.NewReader(conn)
 
 	for {
-		b, err := r.ReadBytes(0x00)
+		b := make([]byte, 8)
+		n, err := io.ReadFull(r, b)
 		if err != nil {
-			log.Infoln("error reading message:", err)
+			log.Infoln("error reading message len prefix:", err)
 			continue
 		}
-		b = b[:len(b)-1] // remove delimiter
-		ms := &types.SignedMessages{}
-		err = proto.Unmarshal(b, ms)
+		if n != 8 {
+			log.Errorf("error reading message: expected read 8, actual read %d", n)
+			continue
+		}
+		l := binary.BigEndian.Uint64(b)
+		bs := make([]byte, l)
+		n, err = io.ReadFull(r, bs)
 		if err != nil {
-			log.Errorf("error unmarshalling incoming msg: %s", err.Error())
+			log.Errorln("error reading message:", err)
+			continue
+		}
+		if uint64(n) != l {
+			log.Errorf("error reading message: expected read %d, actual read %d", l, n)
+			continue
+		}
+
+		ms := &types.Envelopes{}
+		err = proto.Unmarshal(bs, ms)
+		if err != nil {
+			log.Errorf("error unmarshalling incoming msg: %s, read bytes %x", err.Error(), bs)
 			continue
 		}
 		for _, m := range ms.Msgs {

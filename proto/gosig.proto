@@ -35,20 +35,24 @@ message BlockHeader {
   bytes tx_root = 5;
 }
 
-message SignedMessage {
+message Envelope {
   bytes sig = 1;
   uint32 validator_index = 2;
-  oneof message {
-    bytes bytes = 3; // arbitrary bytes for testing purpose
-    BlockProposal proposal = 4;
-    PrepareCertificate prepare = 5;
-    TentativeCommitCertificate tc = 6;
-  }
-  int64 deadline = 7; // deadline after which the message will no longer be relayed
+  Message msg = 3;
 }
 
-message SignedMessages {
-  repeated SignedMessage msgs = 1;
+message Message {
+  oneof message {
+    bytes bytes = 1; // arbitrary bytes for testing purpose
+    BlockProposal proposal = 2;
+    PrepareCertificate prepare = 3;
+    TentativeCommitCertificate tc = 4;
+  }
+  int64 deadline = 5; // deadline after which the message will no longer be relayed
+}
+
+message Envelopes {
+  repeated Envelope msgs = 1;
 }
 
 message BlockProposal {

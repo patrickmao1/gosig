@@ -40,7 +40,7 @@ func newClient(url string) types.NetworkTestClient {
 func TestNetwork(t *testing.T) {
 	ctx := context.Background()
 
-	msg := "hello 1"
+	msg := "hello"
 	_, err := clients[0].Broadcast(ctx, &types.BroadcastReq{Value: msg})
 	require.NoError(t, err)
 

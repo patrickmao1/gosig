@@ -57,10 +57,10 @@ message BlockHeader {
 }
 ```
 
-### _SignedMessage_
+### _Envelope_
 
 ```protobuf
-message SignedMessage {
+message Envelope {
     bytes sig = 1;
     int validator_index = 2;
     oneof message_types {
@@ -121,13 +121,13 @@ For simplicity, the member list is read from config files and stays sorted and f
 ### Top Level Interface
 
 ```go
-type MessageHandler func(msg *proto.SignedMessage) error
+type MessageHandler func(msg *proto.Envelope) error
 
 interface Network {
     // Starts listening on the given port. `handler` is called every time a message arrives.
     Listen(port int, handler MessageHandler) error
     // Disseminates the message to the network. Procceeds in a preconfigured number of gossip rounds.
-    Broadcast(msg *proto.SignedMessage) error
+    Broadcast(msg *proto.Envelope) error
 } 
 ```
 

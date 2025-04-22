@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"github.com/patrickmao1/gosig/blockchain"
+	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -18,9 +19,9 @@ func main() {
 
 type TestService struct {
 	types.UnimplementedNetworkTestServer
-	network   *blockchain.Network
-	msgs      *blockchain.MsgBuffer
-	processed []string
+	network  *blockchain.Network
+	msgs     *blockchain.MsgBuffer
+	received map[string]string
 }
 
 func NewTestService() *TestService {
@@ -31,11 +32,13 @@ func NewTestService() *TestService {
 		{IP: "172.16.0.4", Port: 9090},
 		{IP: "172.16.0.5", Port: 9090},
 	}
-	msgBuf := blockchain.NewMsgBuffer()
+	sk, _ := crypto.GenKeyPairBytesFromSeed(1)
+	msgBuf := blockchain.NewMsgBuffer(sk, 0)
 	network := blockchain.NewNetwork(msgBuf, 2, 300*time.Millisecond, peers)
 	return &TestService{
-		network: network,
-		msgs:    msgBuf,
+		network:  network,
+		msgs:     msgBuf,
+		received: make(map[string]string),
 	}
 }
 
@@ -55,26 +58,27 @@ func (s *TestService) Run() {
 	}
 }
 
-func (s *TestService) handleMessage(msg *types.SignedMessage) {
-	b := msg.GetBytes()
-	if slices.Contains(s.processed, string(b)) {
-		return
-	}
+func (s *TestService) handleMessage(signedMsg *types.Envelope) {
+	b := signedMsg.Msg.GetBytes()
 	log.Infof("got message %s", b)
-	s.msgs.Put(string(b), msg)
-	s.processed = append(s.processed, string(msg.GetBytes()))
+	s.msgs.Put(string(b), signedMsg.Msg)
+	s.received[string(b)] = string(b)
 }
 
 func (s *TestService) GetMsgs(_ context.Context, _ *types.GetReq) (*types.GetRes, error) {
-	slices.Sort(s.processed)
-	return &types.GetRes{Values: s.processed}, nil
+	var msgs []string
+	for _, msg := range s.received {
+		msgs = append(msgs, msg)
+	}
+	slices.Sort(msgs)
+	return &types.GetRes{Values: msgs}, nil
 }
 
 func (s *TestService) Broadcast(_ context.Context, req *types.BroadcastReq) (*types.BroadcastRes, error) {
-	msg := &types.SignedMessage{
-		MessageTypes: &types.SignedMessage_Bytes{Bytes: []byte(req.Value)},
-		Deadline:     time.Now().Add(time.Second).UnixMilli(),
+	msg := &types.Message{
+		Message:  &types.Message_Bytes{Bytes: []byte(req.Value)},
+		Deadline: time.Now().Add(time.Second).UnixMilli(),
 	}
-	s.msgs.Put(string(msg.GetBytes()), msg)
+	s.msgs.Put(req.Value, msg)
 	return &types.BroadcastRes{}, nil
 }

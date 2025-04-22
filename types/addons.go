@@ -25,8 +25,8 @@ func (h *BlockHeader) Hash() []byte {
 	return hash[:]
 }
 
-func (m *SignedMessage) DDL() time.Time {
-	return time.UnixMilli(m.Deadline)
+func (m *Envelope) DDL() time.Time {
+	return time.UnixMilli(m.Msg.Deadline)
 }
 
 // NumSigned returns the number of validators who has provided a sig

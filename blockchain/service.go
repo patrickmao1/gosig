@@ -45,9 +45,9 @@ type Service struct {
 
 func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
 	roundInterval := time.Duration(cfg.ProposalStageDurationMs + cfg.ProposalStageDurationMs)
-	msgPool := NewMsgBuffer()
+	msgBuf := NewMsgBuffer(cfg.MyPrivKey(), cfg.MyValidatorIndex())
 	nw := NewNetwork(
-		msgPool,
+		msgBuf,
 		cfg.GossipDegree,
 		time.Duration(cfg.GossipIntervalMs)*time.Millisecond,
 		cfg.Validators,
@@ -59,7 +59,7 @@ func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool)
 		db:            db,
 		txPool:        txPool,
 		nw:            nw,
-		msgBuf:        msgPool,
+		msgBuf:        msgBuf,
 	}
 }
 
@@ -188,19 +188,13 @@ func (s *Service) proposeIfChosen() error {
 		Round:       s.round,
 		BlockHeader: header,
 	}
-	bs, err := proto.Marshal(proposal)
-	if err != nil {
-		return err
-	}
-	signed := &types.SignedMessage{
-		Sig:            crypto.SignBytes(s.cfg.MyPrivKey(), bs),
-		ValidatorIndex: s.cfg.MyValidatorIndex(),
-		Message:        &types.SignedMessage_Proposal{Proposal: proposal},
-		Deadline:       s.roundProposalEndTime().UnixMilli(),
+	msg := &types.Message{
+		Message:  &types.Message_Proposal{Proposal: proposal},
+		Deadline: s.roundProposalEndTime().UnixMilli(),
 	}
 
 	// broadcast
-	s.msgBuf.Put(s.proposalKey(s.cfg.MyValidatorIndex()), signed)
+	s.msgBuf.Put(s.proposalKey(s.cfg.MyValidatorIndex()), msg)
 
 	return nil
 }
@@ -275,21 +269,17 @@ func (s *Service) prepare(blockHash []byte) error {
 		Msg:  prep,
 		Cert: cert,
 	}
-	bs, err := proto.Marshal(prepCert)
-	if err != nil {
-		return err
-	}
-	signedMsg := &types.SignedMessage{
-		Sig:            crypto.SignBytes(s.cfg.privKey, bs),
-		ValidatorIndex: s.cfg.MyValidatorIndex(),
-		Message:        &types.SignedMessage_Prepare{Prepare: prepCert},
-		Deadline:       s.nextRoundTime().UnixMilli(),
+	signedMsg := &types.Message{
+		Message:  &types.Message_Prepare{Prepare: prepCert},
+		Deadline: s.nextRoundTime().UnixMilli(),
 	}
 	s.msgBuf.Put(s.prepareKey(), signedMsg)
 	return nil
 }
 
 func (s *Service) tentativeCommit(blockHash []byte) error {
+	// TODO check transactions before TC
+
 	tc := &types.TentativeCommit{BlockHash: blockHash}
 	cert, err := s.signNewCertificate(tc)
 	if err != nil {
@@ -299,15 +289,9 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 		Msg:  tc,
 		Cert: cert,
 	}
-	bs, err := proto.Marshal(tcWithCert)
-	if err != nil {
-		return err
-	}
-	signedMsg := &types.SignedMessage{
-		Sig:            crypto.SignBytes(s.cfg.privKey, bs),
-		ValidatorIndex: s.cfg.MyValidatorIndex(),
-		Message:        &types.SignedMessage_Tc{Tc: tcWithCert},
-		Deadline:       s.nextRoundTime().UnixMilli(),
+	signedMsg := &types.Message{
+		Message:  &types.Message_Tc{Tc: tcWithCert},
+		Deadline: s.nextRoundTime().UnixMilli(),
 	}
 	s.msgBuf.Put(s.tcKey(), signedMsg)
 
@@ -318,6 +302,12 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 	// We also need to persist our state of what I have TC'd so that later if this block isn't
 	// committed we can know its block hash. This state is cleared upon commit of this block.
 	return s.db.Put(tcBlockKey, blockHash, nil)
+}
+
+func (s *Service) commit(blockHash []byte) error {
+	// TODO do commit stuff
+
+	return s.db.Delete(tcBlockKey, nil)
 }
 
 func (s *Service) signNewCertificate(msg proto.Message) (*types.Certificate, error) {
@@ -335,10 +325,16 @@ func (s *Service) signNewCertificate(msg proto.Message) (*types.Certificate, err
 	}, nil
 }
 
-func (s *Service) commit() error {
-	// TODO do commit stuff
-
-	return s.db.Delete(tcBlockKey, nil)
+func (s *Service) verifyCertificate(msg proto.Message, cert *types.Certificate) error {
+	bs, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
+	if !pass {
+		return fmt.Errorf("invalid cert: %+v %+v", msg, cert)
+	}
+	return nil
 }
 
 func (s *Service) runCatchUpRoutine() {

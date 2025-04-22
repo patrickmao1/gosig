@@ -9,26 +9,28 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (s *Service) handleMessage(msg *types.SignedMessage) {
-	pass, err := s.checkSig(msg)
+func (s *Service) handleMessage(signedMsg *types.Envelope) {
+	pass, err := s.checkSig(signedMsg)
 	if err != nil {
 		log.Error("handleMessage", err)
 		return
 	}
 	if !pass {
-		log.Warnf("handleMessage: incorrect signature for message %v", msg)
+		log.Warnf("handleMessage: incorrect signature for message %v", signedMsg)
 		return
 	}
 
-	switch msg.Message.(type) {
-	case *types.SignedMessage_Proposal:
-		err = s.handleProposal(msg.ValidatorIndex, msg.GetProposal())
-	case *types.SignedMessage_Prepare:
+	msg := signedMsg.Msg
+
+	switch signedMsg.Msg.Message.(type) {
+	case *types.Message_Proposal:
+		err = s.handleProposal(signedMsg.ValidatorIndex, msg.GetProposal())
+	case *types.Message_Prepare:
 		err = s.handlePrepare(msg.GetPrepare())
-	case *types.SignedMessage_Tc:
+	case *types.Message_Tc:
 		err = s.handleTC(msg.GetTc())
 	default:
-		err = fmt.Errorf("handleMessage: unknown message type. msg %v", msg)
+		err = fmt.Errorf("handleMessage: unknown message type. msg %v", signedMsg)
 	}
 	log.Errorln("handleMessage", err)
 }
@@ -67,19 +69,12 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 	s.rmu.RUnlock()
 
 	// Make sure the (partial) certificate is valid
-	cert := incPrep.GetCert()
-	bs, err := proto.Marshal(incPrep.Msg)
+	err := s.verifyCertificate(incPrep.Msg, incPrep.GetCert())
 	if err != nil {
-		return err
-	}
-	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
-	if !pass {
-		return fmt.Errorf("got prepare with invalid cert: %+v", incPrep)
+		return fmt.Errorf("failed to handle prepare msg: %s", err.Error())
 	}
 
 	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
-		var err error
-		mergedCert := incPrep.Cert
 		myPrepMsg, ok := buf.Get(s.prepareKey())
 		if !ok {
 			// No prep found means either I'm not prepared for this round
@@ -95,7 +90,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 		}
 
 		// Merge prepare with my prepare state of this round
-		mergedCert, err = mergeCerts(myPrep.Cert, incPrep.Cert)
+		mergedCert, err := mergeCerts(myPrep.Cert, incPrep.Cert)
 		if err != nil {
 			return err
 		}
@@ -104,10 +99,9 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			Msg:  myPrep.Msg,
 			Cert: mergedCert,
 		}
-		mergedMsg.Message = &types.SignedMessage_Prepare{Prepare: mergedPrep}
+		mergedMsg.Message = &types.Message_Prepare{Prepare: mergedPrep}
 		buf.Put(s.prepareKey(), mergedMsg)
 
-		// TODO maybe move this outside of the tx
 		if mergedPrep.Cert.NumSigned() >= s.cfg.Quorum() {
 			// persist the prepare cert because if this block is later TC'd by me but never committed, I'll need to
 			// re-propose this block with its P-cert as the proposal certificate.
@@ -117,6 +111,16 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			}
 
 			// initiate a tc if I haven't yet
+			tc, ok := buf.Get(s.tcKey())
+			// I already have a TC msg. This could either mean that I have previously processed
+			// P msgs that reached quorum so that I initiated a TC, or that I have received a TC
+			// msg before I collect quorum sigs form P. In the former case, I have signed the TC
+			// msg, no need to sign it again. In the latter case, I need to add my TC signature.
+			if ok {
+				if tc.GetTc().Cert.SigCounts[s.cfg.MyValidatorIndex()] == 0 {
+					// TODO
+				}
+			}
 			if !buf.Has(s.tcKey()) {
 				err := s.tentativeCommit(mergedPrep.Msg.BlockHash)
 				if err != nil {
@@ -133,22 +137,67 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 	s.rmu.RLock()
 	if incTc.Cert.Round != s.round {
 		s.rmu.RUnlock()
-		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incTc.Cert.Round, s.round)
+		log.Warnf("ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round)
 		return nil
 	}
 	s.rmu.RUnlock()
 
 	// Make sure the (partial) certificate is valid
-	cert := incTc.GetCert()
-	bs, err := proto.Marshal(incTc.Msg)
+	err := s.verifyCertificate(incTc.Msg, incTc.GetCert())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to handle TC msg: %s", err.Error())
 	}
-	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
-	if !pass {
-		return fmt.Errorf("got prepare with invalid cert: %+v", incTc)
-	}
-	return nil
+
+	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
+		// The paper specifies that TC msgs can be handled as soon as I have prepared something.
+		// This is for pipelining the Prepare and TC stages. I should process a TC msg if the TC
+		// msg's cert is correct and I have a matching P msg regardless whether I have received
+		// enough P sigs to TC myself.
+		myPrepMsg, ok := buf.Get(s.prepareKey())
+		if !ok {
+			return fmt.Errorf("failed to handle TC msg: no prepare found for %s", s.prepareKey())
+		}
+		myPrep := myPrepMsg.GetPrepare()
+		if !bytes.Equal(myPrep.Msg.BlockHash, incTc.Msg.BlockHash) {
+			return fmt.Errorf("incTc block != my prepare block: %x != %x",
+				incTc.Msg.BlockHash, myPrep.Msg.BlockHash)
+		}
+		myTc := &types.TentativeCommitCertificate{
+			Msg:  &types.TentativeCommit{BlockHash: myPrep.Msg.BlockHash},
+			Cert: nil,
+		}
+		myTcMsg, ok := buf.Get(s.tcKey())
+		if ok {
+			myTc = myTcMsg.GetTc()
+		} else {
+			myTcMsg = &types.Message{
+				Message:  nil,
+				Deadline: 0,
+			}
+		}
+
+		if !bytes.Equal(myTc.Msg.BlockHash, incTc.Msg.BlockHash) {
+			return fmt.Errorf("got TC different from mine: theirs %+v, mine %+v", incTc, myTc)
+		}
+
+		// Merge incoming tc with my tc of this round
+		mergedCert, err := mergeCerts(myTc.Cert, incTc.Cert)
+		if err != nil {
+			return err
+		}
+		mergedMsg := proto.CloneOf(myTcMsg)
+		mergedTc := &types.TentativeCommitCertificate{
+			Msg:  incTc.Msg,
+			Cert: mergedCert,
+		}
+		mergedMsg.Message = &types.Message_Tc{Tc: mergedTc}
+		buf.Put(s.tcKey(), mergedMsg)
+
+		if mergedTc.Cert.NumSigned() >= s.cfg.Quorum() {
+			return s.commit(mergedTc.Msg.BlockHash)
+		}
+		return nil
+	})
 }
 
 func isSigSuperSet(a, b []uint32) bool {
@@ -161,8 +210,12 @@ func isSigSuperSet(a, b []uint32) bool {
 }
 
 func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
-	if a == nil || b == nil {
-		return nil, fmt.Errorf("mergeCerts: nil cert")
+	if a == nil && b == nil {
+		return nil, fmt.Errorf("mergeCerts: nil certs")
+	} else if a != nil && b == nil {
+		return a, nil
+	} else if a == nil {
+		return b, nil
 	}
 	if a.Round != b.Round {
 		return nil, fmt.Errorf("mergeCerts: round not equal: a %v, b %v", a, b)
@@ -215,22 +268,11 @@ func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 	return crypto.VRF2(prop.BlockHeader.ProposerProof) < s.cfg.ProposalThreshold
 }
 
-func (s *Service) checkSig(msg *types.SignedMessage) (bool, error) {
-	var message proto.Message
-	switch msg.Message.(type) {
-	case *types.SignedMessage_Proposal:
-		message = msg.GetProposal()
-	case *types.SignedMessage_Prepare:
-		message = msg.GetPrepare()
-	case *types.SignedMessage_Tc:
-		message = msg.GetTc()
-	default:
-		return false, fmt.Errorf("unknown message type. msg %v", msg)
-	}
-	pubKey := s.cfg.Validators[msg.ValidatorIndex].GetPubKey()
-	msgBytes, err := proto.Marshal(message)
+func (s *Service) checkSig(signedMsg *types.Envelope) (bool, error) {
+	pubKey := s.cfg.Validators[signedMsg.ValidatorIndex].GetPubKey()
+	msgBytes, err := proto.Marshal(signedMsg.Msg)
 	if err != nil {
 		return false, err
 	}
-	return crypto.VerifySigBytes(pubKey, msgBytes, msg.Sig), nil
+	return crypto.VerifySigBytes(pubKey, msgBytes, signedMsg.Sig), nil
 }
