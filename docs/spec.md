@@ -225,7 +225,8 @@ Each node maintains a state specific for the current round. The state is reset a
 
 ### Random Seed Generation
 
-Our implementation deviates from Gosig in what data the new seed is dependant on. Instead of having it depend on only the previous seed, we use `proposerProof` of block `h` as the seed for generating seed for height `h+1`. For proposing a new block $B^{h+1}$, $B^{h}$'s `proposerProof` has the form $SIG_{l^{h}}(r^{h},Q^{h-1})$ where $r^{h-1}$ is the round in which $B^{h-1}$ is proposed, which is just:
+Our implementation deviates from Gosig in what data the new seed depends on. Instead of having it depend on only the 
+previous seed, we use `proposerProof` of block `h` as the seed for generating seed for height `h+1`. For proposing a new block $B^{h+1}$, $B^{h}$'s `proposerProof` has the form $SIG_{l^{h}}(r^{h},Q^{h-1})$ where $r^{h-1}$ is the round in which $B^{h-1}$ is proposed, which is just:
 
 1. as random because it also depends on $Q^{h-1}$
 2. as unpredictable because it's signed using a private key

@@ -35,9 +35,7 @@ type DB struct {
 }
 
 func NewDB(db *leveldb.DB) *DB {
-	return &DB{
-		DB: db,
-	}
+	return &DB{DB: db}
 }
 
 func (db *DB) GetBlockHeader(blockHash []byte) (*types.BlockHeader, error) {
@@ -62,6 +60,24 @@ func (db *DB) GetHeadBlock() (*types.BlockHeader, error) {
 	return head, err
 }
 
+func (db *DB) PutPCert(blockHash []byte, cert *types.Certificate) error {
+	bs, err := proto.Marshal(cert)
+	if err != nil {
+		return err
+	}
+	return db.Put(blockPCertKey(blockHash), bs, nil)
+}
+
+func (db *DB) GetPCert(blockHash []byte) (*types.Certificate, error) {
+	bytes, err := db.Get(blockPCertKey(blockHash), nil)
+	if err != nil {
+		return nil, err
+	}
+	cert := &types.Certificate{}
+	err = proto.Unmarshal(bytes, cert)
+	return cert, err
+}
+
 func (db *DB) PutTcCert(blockHash []byte, cert *types.Certificate) error {
 	bs, err := proto.Marshal(cert)
 	if err != nil {
@@ -80,33 +96,20 @@ func (db *DB) GetTcCert(blockHash []byte) (*types.Certificate, error) {
 	return cert, err
 }
 
-func (db *DB) GetTcBlock() (*types.BlockHeader, *types.Certificate, error) {
+func (db *DB) GetTcState() (tcBlock *types.BlockHeader, pCert *types.Certificate, err error) {
 	blockHash, err := db.Get(tcBlockKey, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-
 	h, err := db.GetBlockHeader(blockHash)
 	if err != nil {
 		return nil, nil, err
 	}
-	tcCert, err := db.GetTcCert(blockHash)
+	pCert, err = db.GetPCert(blockHash)
 	if err != nil {
 		return nil, nil, err
 	}
-	return h, tcCert, err
-}
-
-func (db *DB) PutTcBlock(blockHash []byte, certificate *types.Certificate) error {
-	bs, err := proto.Marshal(certificate)
-	if err != nil {
-		return err
-	}
-	err = db.Put(blockTcCertKey(blockHash), bs, nil)
-	if err != nil {
-		return err
-	}
-	return db.Put(tcBlockKey, blockHash, nil)
+	return h, pCert, err
 }
 
 func (db *DB) GetBlockTxHashes(blockHash []byte) (*types.TransactionHashes, error) {

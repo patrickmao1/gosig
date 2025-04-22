@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"bytes"
 	"fmt"
 	bls12381 "github.com/kilic/bls12-381"
 	"github.com/patrickmao1/gosig/crypto"
@@ -56,88 +57,103 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 	return nil
 }
 
-func (s *Service) handlePrepare(prep *types.PrepareCertificate) error {
+func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 	s.rmu.RLock()
-	if prep.Cert.Round != s.round {
+	if incPrep.Cert.Round != s.round {
 		s.rmu.RUnlock()
-		log.Warnf("ignoring prepare: prepare.round %d != local round %d", prep.Cert.Round, s.round)
+		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incPrep.Cert.Round, s.round)
 		return nil
 	}
 	s.rmu.RUnlock()
 
-	// make sure the (partial) certificate is valid
-	cert := prep.GetCert()
-	bs, err := proto.Marshal(prep.Msg)
+	// Make sure the (partial) certificate is valid
+	cert := incPrep.GetCert()
+	bs, err := proto.Marshal(incPrep.Msg)
 	if err != nil {
 		return err
 	}
 	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
 	if !pass {
-		return fmt.Errorf("got prepare with invalid cert: %+v", prep)
+		return fmt.Errorf("got prepare with invalid cert: %+v", incPrep)
 	}
 
 	return s.msgBuf.Tx(func(buf *MsgBuffer) error {
-		// merge prepare with my prepare state of this round
 		var err error
-		mergedCert := prep.Cert
-		myPrep, ok := buf.Get(s.prepareKey())
+		mergedCert := incPrep.Cert
+		myPrepMsg, ok := buf.Get(s.prepareKey())
 		if !ok {
-			// no prep found means either I'm not prepared for this round
-			// or my round has ended and I have deleted it
+			// No prep found means either I'm not prepared for this round
+			// or my round has ended and I have deleted it.
+			// According to the paper, I should only handle prepare msgs if I'm prepared
 			log.Debugf("no prepare found for %s", s.prepareKey())
 			return nil
 		}
-		mergedCert, err = mergeCerts(myPrep.GetPrepare().Cert, prep.Cert)
+		myPrep := myPrepMsg.GetPrepare()
+
+		if !bytes.Equal(myPrep.Msg.BlockHash, incPrep.Msg.BlockHash) {
+			return fmt.Errorf("got prepare different from mine: theirs %+v, mine %+v", incPrep, myPrep)
+		}
+
+		// Merge prepare with my prepare state of this round
+		mergedCert, err = mergeCerts(myPrep.Cert, incPrep.Cert)
 		if err != nil {
 			return err
 		}
-		clone := proto.CloneOf(myPrep)
-		clone.Message = &types.SignedMessage_Prepare{
-			Prepare: &types.PrepareCertificate{
-				Msg:  prep.Msg,
-				Cert: mergedCert,
-			},
+		mergedMsg := proto.CloneOf(myPrepMsg)
+		mergedPrep := &types.PrepareCertificate{
+			Msg:  myPrep.Msg,
+			Cert: mergedCert,
 		}
-		buf.Put(s.prepareKey(), clone)
+		mergedMsg.Message = &types.SignedMessage_Prepare{Prepare: mergedPrep}
+		buf.Put(s.prepareKey(), mergedMsg)
 
 		// TODO maybe move this outside of the tx
-		if clone.GetPrepare().Cert.NumSigned() >= s.cfg.Quorum() {
+		if mergedPrep.Cert.NumSigned() >= s.cfg.Quorum() {
+			// persist the prepare cert because if this block is later TC'd by me but never committed, I'll need to
+			// re-propose this block with its P-cert as the proposal certificate.
+			err := s.db.PutPCert(mergedPrep.Msg.BlockHash, mergedPrep.Cert)
+			if err != nil {
+				return err
+			}
+
 			// initiate a tc if I haven't yet
 			if !buf.Has(s.tcKey()) {
-				tc := &types.TentativeCommit{
-					BlockHash:   myPrep.GetPrepare().Msg.BlockHash,
-					BlockHeight: myPrep.GetPrepare().Msg.BlockHeight,
-				}
-				bs, err := proto.Marshal(tc)
+				err := s.tentativeCommit(mergedPrep.Msg.BlockHash)
 				if err != nil {
 					return err
 				}
-				sig := crypto.SignBytes(s.cfg.privKey, bs)
-				sigCounts := make([]uint32, len(s.cfg.Validators))
-				tcWithCert := &types.TentativeCommitCertificate{
-					Msg: tc,
-					Cert: &types.Certificate{
-						AggSig:    sig,
-						SigCounts: sigCounts,
-						Round:     myPrep.GetPrepare().Cert.Round,
-					},
-				}
-				msg := &types.SignedMessage{
-					Sig:            nil,
-					ValidatorIndex: 0,
-					Message:        &types.SignedMessage_Tc{Tc: tcWithCert},
-					Deadline:       s.nextRoundTime().UnixMilli(),
-				}
-				buf.Put(s.tcKey(), msg)
 			}
 		}
 		return nil
 	})
 }
 
+func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
+	// merge tc with my tc of this round
+	s.rmu.RLock()
+	if incTc.Cert.Round != s.round {
+		s.rmu.RUnlock()
+		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incTc.Cert.Round, s.round)
+		return nil
+	}
+	s.rmu.RUnlock()
+
+	// Make sure the (partial) certificate is valid
+	cert := incTc.GetCert()
+	bs, err := proto.Marshal(incTc.Msg)
+	if err != nil {
+		return err
+	}
+	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
+	if !pass {
+		return fmt.Errorf("got prepare with invalid cert: %+v", incTc)
+	}
+	return nil
+}
+
 func isSigSuperSet(a, b []uint32) bool {
 	for i := range a {
-		if a[i] == 0 && b[i] > 0 {
+		if b[i] > 0 && a[i] < b[i] {
 			return false
 		}
 	}
@@ -187,12 +203,6 @@ func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
 	}, nil
 }
 
-func (s *Service) handleTC(tc *types.TentativeCommitCertificate) error {
-	// TODO
-	// merge tc with my tc of this round
-	return nil
-}
-
 func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
@@ -202,7 +212,7 @@ func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 		return false
 	}
 	// proposer's score must be lower than the threshold
-	return crypto.GenRNGWithProof(prop.BlockHeader.ProposerProof) < s.cfg.ProposalThreshold
+	return crypto.VRF2(prop.BlockHeader.ProposerProof) < s.cfg.ProposalThreshold
 }
 
 func (s *Service) checkSig(msg *types.SignedMessage) (bool, error) {

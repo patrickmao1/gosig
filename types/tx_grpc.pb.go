@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Node_SubmitTransaction_FullMethodName = "/hydfs.Node/SubmitTransaction"
-	Node_TransactionStatus_FullMethodName = "/hydfs.Node/TransactionStatus"
+	Node_SubmitTransaction_FullMethodName = "/gosig.Node/SubmitTransaction"
+	Node_TransactionStatus_FullMethodName = "/gosig.Node/TransactionStatus"
 )
 
 // NodeClient is the client API for Node service.
@@ -142,7 +142,7 @@ func _Node_TransactionStatus_Handler(srv interface{}, ctx context.Context, dec f
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Node_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "hydfs.Node",
+	ServiceName: "gosig.Node",
 	HandlerType: (*NodeServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

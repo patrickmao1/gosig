@@ -41,5 +41,5 @@ func (c *Certificate) NumSigned() int {
 }
 
 func (p *BlockProposal) Score() uint32 {
-	return crypto.GenRNGWithProof(p.BlockHeader.ProposerProof)
+	return crypto.VRF2(p.BlockHeader.ProposerProof)
 }

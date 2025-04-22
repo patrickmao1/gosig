@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	bls12381 "github.com/kilic/bls12-381"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/sha3"
+	"golang.org/x/crypto/blake2b"
 	"math/big"
 	mathrand "math/rand"
 )
@@ -35,16 +35,10 @@ func GenKeyPair() (priv *bls12381.Fr, pub *bls12381.PointG1) {
 }
 
 func hashToG2(message []byte) *bls12381.PointG2 {
-	h := sha3.NewLegacyKeccak256()
-	_, err := h.Write(message)
-	if err != nil {
-		panic(err)
-	}
-	sha3.Sum256(message)
-	digest := h.Sum(nil)
-	domainSeparationTag := []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_")
+	digest := blake2b.Sum256(message)
+	dst := []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_")
 	g2 := bls12381.NewG2()
-	messagePoint, err := g2.HashToCurve(digest, domainSeparationTag)
+	messagePoint, err := g2.HashToCurve(digest[:], dst)
 	if err != nil {
 		panic(err)
 	}

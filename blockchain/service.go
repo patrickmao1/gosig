@@ -70,6 +70,10 @@ func (s *Service) Start() error {
 		<-t.C
 		proposalStageEnd := time.After(s.cfg.ProposalStageDuration())
 
+		/*
+		 * Stage 1: VRF-based Proposal
+		 */
+
 		// initialize round number and seed
 		err := s.initRoundState()
 		if err != nil {
@@ -85,6 +89,10 @@ func (s *Service) Start() error {
 		// block until the end of the proposal stage
 		<-proposalStageEnd
 
+		/*
+		 * Stage 2: BFT agreement
+		 */
+
 		decidedBlock, err := s.decideBlock()
 		if err != nil {
 			log.Errorln("cannot decide block", err)
@@ -92,11 +100,13 @@ func (s *Service) Start() error {
 		}
 
 		if decidedBlock != nil {
-			err = s.prepare(decidedBlock, nextRoundTime)
+			err = s.prepare(decidedBlock.Hash())
 			if err != nil {
 				log.Errorln("failed to prepare", err)
 				continue
 			}
+		} else {
+			log.Infof("no block decided for round %d", s.round)
 		}
 		// TODO: Remove proposal messages from msg buffer.
 
@@ -130,7 +140,7 @@ func (s *Service) initRoundState() error {
 
 func (s *Service) proposeIfChosen() error {
 	// determine if I should propose
-	proposalScore, proposerProof := crypto.GenRNG(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^{h}}(r^{h},Q^{h-1})
+	proposalScore, proposerProof := crypto.VRF(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^h}(r^h,Q^{h-1})
 	if proposalScore >= s.cfg.ProposalThreshold {
 		return nil
 	}
@@ -142,10 +152,11 @@ func (s *Service) proposeIfChosen() error {
 		ParentHash:    headHash,
 		ProposerProof: proposerProof,
 	}
-	tcBlock, pCert, err := s.db.GetTcBlock()
+	tcBlock, pCert, err := s.db.GetTcState()
 	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
 		return err
 	}
+
 	var txs []*types.SignedTransaction
 	if errors.Is(err, leveldb.ErrNotFound) {
 		// no tc block found, we propose a new block
@@ -156,9 +167,9 @@ func (s *Service) proposeIfChosen() error {
 			return err
 		}
 		header.ProposalCert = headTcCert
-	} else {
+	} else { // TC block found.
 		// Sanity check. If these aren't the same then I wouldn't have TC'd that block
-		if !bytes.Equal(tcBlock.ParentHash, s.head.ParentHash) {
+		if !bytes.Equal(tcBlock.ParentHash, s.head.Hash()) {
 			log.Panicf("inconsistent parent hashes! tcBlock %v, headBlock %v", tcBlock, s.head)
 		}
 		// I have previously TC'd a block, but I never committed it. Re-propose the block.
@@ -208,7 +219,7 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 		}
 	}
 
-	tcBlock, pCert, err := s.db.GetTcBlock()
+	tcBlock, pCert, err := s.db.GetTcState()
 	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
 		return nil, err
 	}
@@ -251,33 +262,20 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 			minProposal = proposal
 		}
 	}
-	err = s.db.PutTcBlock(minProposal.BlockHeader.Hash(), minProposal.BlockHeader.ProposalCert)
-	if err != nil {
-		return nil, err
-	}
 	return minProposal.BlockHeader, nil
 }
 
-func (s *Service) prepare(block *types.BlockHeader, nextRoundTime time.Time) error {
-	prep := &types.Prepare{
-		BlockHash:   block.Hash(),
-		BlockHeight: block.Height,
-	}
-	bs, err := proto.Marshal(prep)
+func (s *Service) prepare(blockHash []byte) error {
+	prep := &types.Prepare{BlockHash: blockHash}
+	cert, err := s.signNewCertificate(prep)
 	if err != nil {
 		return err
 	}
-	sigCounts := make([]uint32, len(s.cfg.Validators))
-	sigCounts[s.cfg.MyValidatorIndex()] = 1
 	prepCert := &types.PrepareCertificate{
-		Msg: prep,
-		Cert: &types.Certificate{
-			AggSig:    crypto.SignBytes(s.cfg.privKey, bs),
-			SigCounts: sigCounts,
-			Round:     s.round,
-		},
+		Msg:  prep,
+		Cert: cert,
 	}
-	bs, err = proto.Marshal(prepCert)
+	bs, err := proto.Marshal(prepCert)
 	if err != nil {
 		return err
 	}
@@ -285,10 +283,62 @@ func (s *Service) prepare(block *types.BlockHeader, nextRoundTime time.Time) err
 		Sig:            crypto.SignBytes(s.cfg.privKey, bs),
 		ValidatorIndex: s.cfg.MyValidatorIndex(),
 		Message:        &types.SignedMessage_Prepare{Prepare: prepCert},
-		Deadline:       nextRoundTime.UnixMilli(),
+		Deadline:       s.nextRoundTime().UnixMilli(),
 	}
 	s.msgBuf.Put(s.prepareKey(), signedMsg)
 	return nil
+}
+
+func (s *Service) tentativeCommit(blockHash []byte) error {
+	tc := &types.TentativeCommit{BlockHash: blockHash}
+	cert, err := s.signNewCertificate(tc)
+	if err != nil {
+		return err
+	}
+	tcWithCert := &types.TentativeCommitCertificate{
+		Msg:  tc,
+		Cert: cert,
+	}
+	bs, err := proto.Marshal(tcWithCert)
+	if err != nil {
+		return err
+	}
+	signedMsg := &types.SignedMessage{
+		Sig:            crypto.SignBytes(s.cfg.privKey, bs),
+		ValidatorIndex: s.cfg.MyValidatorIndex(),
+		Message:        &types.SignedMessage_Tc{Tc: tcWithCert},
+		Deadline:       s.nextRoundTime().UnixMilli(),
+	}
+	s.msgBuf.Put(s.tcKey(), signedMsg)
+
+	err = s.db.PutTcCert(blockHash, cert)
+	if err != nil {
+		return err
+	}
+	// We also need to persist our state of what I have TC'd so that later if this block isn't
+	// committed we can know its block hash. This state is cleared upon commit of this block.
+	return s.db.Put(tcBlockKey, blockHash, nil)
+}
+
+func (s *Service) signNewCertificate(msg proto.Message) (*types.Certificate, error) {
+	bs, err := proto.Marshal(msg)
+	if err != nil {
+		return nil, err
+	}
+	sig := crypto.SignBytes(s.cfg.privKey, bs)
+	sigCounts := make([]uint32, len(s.cfg.Validators))
+	sigCounts[s.cfg.MyValidatorIndex()] = 1
+	return &types.Certificate{
+		AggSig:    sig,
+		SigCounts: sigCounts,
+		Round:     s.round,
+	}, nil
+}
+
+func (s *Service) commit() error {
+	// TODO do commit stuff
+
+	return s.db.Delete(tcBlockKey, nil)
 }
 
 func (s *Service) runCatchUpRoutine() {

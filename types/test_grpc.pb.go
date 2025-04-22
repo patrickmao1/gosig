@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NetworkTest_GetMsgs_FullMethodName   = "/hydfs.NetworkTest/GetMsgs"
-	NetworkTest_Broadcast_FullMethodName = "/hydfs.NetworkTest/Broadcast"
+	NetworkTest_GetMsgs_FullMethodName   = "/gosig.NetworkTest/GetMsgs"
+	NetworkTest_Broadcast_FullMethodName = "/gosig.NetworkTest/Broadcast"
 )
 
 // NetworkTestClient is the client API for NetworkTest service.
@@ -142,7 +142,7 @@ func _NetworkTest_Broadcast_Handler(srv interface{}, ctx context.Context, dec fu
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var NetworkTest_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "hydfs.NetworkTest",
+	ServiceName: "gosig.NetworkTest",
 	HandlerType: (*NetworkTestServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
