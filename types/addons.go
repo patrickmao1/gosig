@@ -2,7 +2,7 @@ package types
 
 import (
 	"github.com/patrickmao1/gosig/crypto"
-	"golang.org/x/crypto/sha3"
+	"golang.org/x/crypto/blake2b"
 	"google.golang.org/protobuf/proto"
 	"time"
 )
@@ -12,7 +12,7 @@ func (tx *Transaction) Hash() []byte {
 	if err != nil {
 		panic(err)
 	}
-	hash := sha3.Sum256(bs)
+	hash := blake2b.Sum256(bs)
 	return hash[:]
 }
 
@@ -21,7 +21,7 @@ func (h *BlockHeader) Hash() []byte {
 	if err != nil {
 		panic(err)
 	}
-	hash := sha3.Sum256(bs)
+	hash := blake2b.Sum256(bs)
 	return hash[:]
 }
 
@@ -41,5 +41,5 @@ func (c *Certificate) NumSigned() int {
 }
 
 func (p *BlockProposal) Score() uint32 {
-	return crypto.VRF2(p.BlockHeader.ProposerProof)
+	return crypto.RngFromProof(p.BlockHeader.ProposerProof)
 }

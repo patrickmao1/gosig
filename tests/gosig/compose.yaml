@@ -1,0 +1,73 @@
+services:
+  node1:
+    build:
+      dockerfile: ./tests/gosig/Dockerfile
+    volumes:
+      - ./tests/gosig/docker_volumes/node1:/app/runtime
+    ports:
+      - 8081:8080
+    environment:
+      node_index: 0
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.1
+
+  node2:
+    build:
+      dockerfile: ./tests/gosig/Dockerfile
+    ports:
+      - 8082:8080
+    volumes:
+      - ./tests/gosig/docker_volumes/node2:/app/runtime
+    environment:
+      node_index: 1
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.2
+
+  node3:
+    build:
+      dockerfile: ./tests/gosig/Dockerfile
+    ports:
+      - 8083:8080
+    volumes:
+      - ./tests/gosig/docker_volumes/node3:/app/runtime
+    environment:
+      node_index: 2
+    networks:
+      mynet:
+        ipv4_address: 172.16.0.3
+#
+#  node4:
+#    build:
+#      dockerfile: ./tests/gosig/Dockerfile
+#    ports:
+#      - 8084:8080
+#    volumes:
+#      - ./tests/gosig/docker_volumes/node4:/app/runtime
+#    environment:
+#      node_index: 3
+#    networks:
+#      mynet:
+#        ipv4_address: 172.16.0.4
+#
+#  node5:
+#    build:
+#      dockerfile: ./tests/gosig/Dockerfile
+#    ports:
+#      - 8085:8080
+#    volumes:
+#      - ./tests/gosig/docker_volumes/node5:/app/runtime
+#    environment:
+#      node_index: 4
+#    networks:
+#      mynet:
+#        ipv4_address: 172.16.0.5
+
+networks:
+  mynet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.0.0/16
+          gateway: 172.16.0.254

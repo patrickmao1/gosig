@@ -51,6 +51,20 @@ func (b *OutboundMsgBuffer) Has(key string) bool {
 	return ok
 }
 
+func (b *OutboundMsgBuffer) Delete(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.msgs, key)
+}
+
+func (b *OutboundMsgBuffer) BatchDelete(keys []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, key := range keys {
+		delete(b.msgs, key)
+	}
+}
+
 func (b *OutboundMsgBuffer) List() []*types.Envelope {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -6,7 +6,7 @@ option go_package = "./types";
 
 import "gosig.proto";
 
-service Node {
+service TransactionService {
     rpc SubmitTransaction(SubmitTransactionReq) returns (SubmitTransactionRes);
     rpc TransactionStatus(TransactionStatusReq) returns (TransactionStatusRes);
 }
@@ -15,15 +15,12 @@ message SubmitTransactionReq {
     SignedTransaction tx = 1;
 }
 
-message SubmitTransactionRes {
-    optional string err = 1;
-}
+message SubmitTransactionRes {}
 
 message TransactionStatusReq {
     bytes tx_hash = 1;
 }
 
 message TransactionStatusRes {
-    optional string err = 1;
-    string status = 2;
+    string status = 1;
 }

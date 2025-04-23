@@ -49,7 +49,7 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
-	if prop.Round != s.round {
+	if prop.Round != s.round.Load() {
 		log.Warnf("received proposal for round %d but current round is %d", prop.Round, s.round)
 		return nil
 	}
@@ -75,7 +75,7 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 	s.rmu.RLock()
-	if incPrep.Cert.Round != s.round {
+	if incPrep.Cert.Round != s.round.Load() {
 		s.rmu.RUnlock()
 		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incPrep.Cert.Round, s.round)
 		return nil
@@ -149,7 +149,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 	// merge tc with my tc of this round
 	s.rmu.RLock()
-	if incTc.Cert.Round != s.round {
+	if incTc.Cert.Round != s.round.Load() {
 		s.rmu.RUnlock()
 		log.Warnf("ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round)
 		return nil
@@ -279,7 +279,7 @@ func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 		return false
 	}
 	// proposer's score must be lower than the threshold
-	return crypto.VRF2(prop.BlockHeader.ProposerProof) < s.cfg.ProposalThreshold
+	return prop.Score() < s.cfg.ProposalThreshold
 }
 
 func (s *Service) checkSig(signedMsg *types.Envelope) (bool, error) {

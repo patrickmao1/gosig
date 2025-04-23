@@ -9,7 +9,7 @@ import (
 	"github.com/patrickmao1/gosig/types"
 	"github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
-	"golang.org/x/crypto/sha3"
+	"golang.org/x/crypto/blake2b"
 	"google.golang.org/protobuf/proto"
 	"slices"
 	"sync"
@@ -19,19 +19,21 @@ import (
 
 var log = logrus.New()
 
+func init() {
+	log.SetReportCaller(true)
+}
+
 type Service struct {
 	db     *DB
 	txPool *TxPool
 	nw     *Network
 
-	cfg           *NodeConfig
-	genesis       *GenesisConfig
-	roundInterval time.Duration
+	cfg     *NodeConfig
+	genesis *GenesisConfig
 
 	// current round states
 	rmu       sync.RWMutex
-	round     uint32
-	seed      []byte
+	round     *atomic.Uint32
 	rseed     []byte                          // round concatenated with seed
 	proposals map[uint32]*types.BlockProposal // key is val index
 	head      *types.BlockHeader
@@ -41,11 +43,10 @@ type Service struct {
 	inMsgs  *InboundMsgBuffer
 
 	// catch up routine state
-	catchUpRunning atomic.Bool
+	catchUpRunning *atomic.Bool
 }
 
 func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
-	roundInterval := time.Duration(cfg.ProposalStageDurationMs + cfg.ProposalStageDurationMs)
 
 	outbound := NewOutboundMsgBuffer(cfg.MyPrivKey(), cfg.MyValidatorIndex())
 	inbound := NewInboundMsgBuffer(cfg.Validators)
@@ -58,24 +59,28 @@ func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool)
 		cfg.Validators,
 	)
 	return &Service{
-		cfg:           cfg,
-		genesis:       genesis,
-		roundInterval: roundInterval,
-		db:            db,
-		txPool:        txPool,
-		nw:            nw,
-		outMsgs:       outbound,
-		inMsgs:        inbound,
-		proposals:     make(map[uint32]*types.BlockProposal),
+		cfg:            cfg,
+		genesis:        genesis,
+		db:             db,
+		txPool:         txPool,
+		nw:             nw,
+		outMsgs:        outbound,
+		inMsgs:         inbound,
+		proposals:      make(map[uint32]*types.BlockProposal),
+		round:          new(atomic.Uint32),
+		catchUpRunning: new(atomic.Bool),
 	}
 }
 
-func (s *Service) Start() error {
+func (s *Service) Start() {
 	log.Infoln("Starting blockchain service")
 
 	go s.nw.StartGossip()
 
 	nextRoundTime := s.nextRoundTime()
+	log.Infof("genesis time %s, current round %d, now %s, next round time %s",
+		s.genesis.GenesisTime(), s.getCurrentRound(), time.Now(), nextRoundTime)
+
 	t := time.NewTicker(time.Until(nextRoundTime))
 	for {
 		<-t.C
@@ -89,16 +94,21 @@ func (s *Service) Start() error {
 		err := s.initRoundState()
 		if err != nil {
 			log.Errorln(err)
+			continue
 		}
+
+		log.Infof("new round %d, proposalStageEnd in %s", s.round.Load(), s.cfg.ProposalStageDuration())
 
 		// check if I'm a proposer and propose
 		err = s.proposeIfChosen()
 		if err != nil {
 			log.Errorln(err)
+			continue
 		}
 
 		// block until the end of the proposal stage
 		<-proposalStageEnd
+		log.WithField("round", s.round.Load()).Infof("proposal stage ended")
 
 		/*
 		 * Stage 2: BFT agreement
@@ -111,50 +121,70 @@ func (s *Service) Start() error {
 		}
 
 		if decidedBlock != nil {
+			err := s.db.PutBlockHeader(decidedBlock)
+			if err != nil {
+				log.Errorln("failed to put decided block", err)
+				continue
+			}
 			err = s.prepare(decidedBlock.Hash())
 			if err != nil {
 				log.Errorln("failed to prepare", err)
 				continue
 			}
 		} else {
-			log.Infof("no block decided for round %d", s.round)
+			log.Infof("no block decided for round %d", s.round.Load())
 		}
-		// TODO: Remove proposal messages from msg buffer.
 
 		// reset round timer
 		nextRoundTime = s.nextRoundTime()
+		log.WithField("round", s.round.Load()).Infof("now %s, nextRoundTime %s", time.Now(), nextRoundTime)
 		t.Reset(time.Until(nextRoundTime))
 	}
 }
 
 func (s *Service) initRoundState() error {
 	s.rmu.Lock()
+	defer s.rmu.Unlock()
 
-	s.round++
-	s.proposals = nil
+	s.proposals = make(map[uint32]*types.BlockProposal)
 	head, err := s.db.GetHeadBlock()
-	if err != nil {
+	if err != nil && errors.Is(err, leveldb.ErrNotFound) {
+		log.Infof("no head block found, performing genesis")
+		genesisBlock := NewGenesisBlock(s.genesis.InitialSeed)
+		err := s.db.PutBlockHeader(genesisBlock)
+		if err != nil {
+			return err
+		}
+		log.Infof("genesis block saved to db: %s", genesisBlock)
+		err = s.db.PutHeadBlock(genesisBlock.Hash())
+		if err != nil {
+			return err
+		}
+		head = genesisBlock
+	} else if err != nil {
 		return err
 	}
+	s.round.Store(s.getCurrentRound())
 	s.head = head
 
 	// compute the seed for the round
-	seed := sha3.Sum256(head.ProposerProof)
-	s.seed = seed[:]
+	seed := blake2b.Sum256(head.ProposerProof)
 	b := make([]byte, 4)
-	binary.BigEndian.PutUint32(b, s.round)
-	s.rseed = slices.Concat(b, s.seed)
+	binary.BigEndian.PutUint32(b, s.round.Load())
+	s.rseed = slices.Concat(b, seed[:])
 
-	s.rmu.Unlock()
 	return nil
 }
 
 func (s *Service) proposeIfChosen() error {
 	// determine if I should propose
 	proposalScore, proposerProof := crypto.VRF(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^h}(r^h,Q^{h-1})
+	log.WithField("round", s.round.Load()).
+		Infof("my proposer score %d, threshold %d", proposalScore, s.cfg.ProposalThreshold)
 	if proposalScore >= s.cfg.ProposalThreshold {
 		return nil
 	}
+	log.WithField("round", s.round.Load()).Infof("I am a proposer!")
 
 	// build a block
 	headHash := s.head.Hash()
@@ -165,11 +195,12 @@ func (s *Service) proposeIfChosen() error {
 	}
 	tcBlock, pCert, err := s.db.GetTcState()
 	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
-		return err
+		return fmt.Errorf("leveldb error: %s", err.Error())
 	}
 
 	var txs []*types.SignedTransaction
 	if errors.Is(err, leveldb.ErrNotFound) {
+		log.Infof("no tc block found, proposing a new block")
 		// no tc block found, we propose a new block
 		txs = s.txPool.Dump()
 		header.TxRoot = computeTxRoot(txs)
@@ -179,6 +210,7 @@ func (s *Service) proposeIfChosen() error {
 		}
 		header.ProposalCert = headTcCert
 	} else { // TC block found.
+		log.Infof("tc block found, proposing tc block %s", tcBlock.Hash())
 		// Sanity check. If these aren't the same then I wouldn't have TC'd that block
 		if !bytes.Equal(tcBlock.ParentHash, s.head.Hash()) {
 			log.Panicf("inconsistent parent hashes! tcBlock %v, headBlock %v", tcBlock, s.head)
@@ -196,7 +228,7 @@ func (s *Service) proposeIfChosen() error {
 
 	// build & sign proposal
 	proposal := &types.BlockProposal{
-		Round:       s.round,
+		Round:       s.round.Load(),
 		BlockHeader: header,
 	}
 	msg := &types.Message{
@@ -320,6 +352,10 @@ func (s *Service) commit(blockHash []byte) error {
 	log.Infof("committing block %x", blockHash)
 
 	// TODO do commit stuff
+	err := s.db.PutHeadBlock(blockHash)
+	if err != nil {
+		return err
+	}
 
 	return s.db.Delete(tcBlockKey, nil)
 }
@@ -335,7 +371,7 @@ func (s *Service) signNewCertificate(msg proto.Message) (*types.Certificate, err
 	return &types.Certificate{
 		AggSig:    sig,
 		SigCounts: sigCounts,
-		Round:     s.round,
+		Round:     s.round.Load(),
 	}, nil
 }
 
@@ -363,17 +399,17 @@ func (s *Service) runCatchUpRoutine() {
 	s.catchUpRunning.Store(false)
 }
 
-func (s *Service) getCurrentRound() int {
-	return int(time.Since(s.genesis.GenesisTime()) / s.roundInterval)
+func (s *Service) getCurrentRound() uint32 {
+	return uint32(time.Since(s.genesis.GenesisTime()) / s.cfg.RoundDuration())
 }
 
 func (s *Service) roundProposalEndTime() time.Time {
-	return s.nextRoundTime().Add(-time.Duration(s.cfg.AgreementStateDurationMs))
+	return s.nextRoundTime().Add(-s.cfg.AgreementStateDuration())
 }
 
 func (s *Service) nextRoundTime() time.Time {
 	round := s.getCurrentRound()
-	sinceGenesis := time.Duration(round+1) * s.roundInterval
+	sinceGenesis := time.Duration(round+1) * s.cfg.RoundDuration()
 	return s.genesis.GenesisTime().Add(sinceGenesis)
 }
 
@@ -382,10 +418,12 @@ func computeTxRoot(signedTxs []*types.SignedTransaction) []byte {
 	for _, tx := range signedTxs {
 		txHashes = append(txHashes, tx.Tx.Hash()...)
 	}
-	root := sha3.Sum256(txHashes)
+	root := blake2b.Sum256(txHashes)
 	return root[:]
 }
 
-func (s *Service) proposalKey(vi uint32) string { return fmt.Sprintf("proposal-%d-%d", s.round, vi) }
-func (s *Service) prepareKey() string           { return fmt.Sprintf("prepare-%d", s.round) }
-func (s *Service) tcKey() string                { return fmt.Sprintf("tc-%d", s.round) }
+func (s *Service) proposalKey(vi uint32) string {
+	return fmt.Sprintf("proposal-%d-%d", s.round.Load(), vi)
+}
+func (s *Service) prepareKey() string { return fmt.Sprintf("prepare-%d", s.round.Load()) }
+func (s *Service) tcKey() string      { return fmt.Sprintf("tc-%d", s.round.Load()) }

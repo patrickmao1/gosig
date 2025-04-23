@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"github.com/patrickmao1/gosig/blockchain"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"net"
@@ -39,7 +39,7 @@ func NewTestService() *TestService {
 	for _, peer := range peers {
 		sk, pk := crypto.GenKeyPairBytes()
 		peer.PubKeyHex = hex.EncodeToString(pk)
-		myip, err := getPrivateIP()
+		myip, err := utils.GetPrivateIP()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -98,34 +98,4 @@ func (s *TestService) Broadcast(_ context.Context, req *types.BroadcastReq) (*ty
 	}
 	s.out.Put(req.Value, msg)
 	return &types.BroadcastRes{}, nil
-}
-
-func getPrivateIP() (net.IP, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return net.IP{}, err
-	}
-
-	for _, addr := range addrs {
-		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil && isPrivateIP(ipNet.IP) {
-				return ipNet.IP, nil
-			}
-		}
-	}
-	return net.IP{}, fmt.Errorf("no private IP found. all addrs:%s", addrs)
-}
-
-func isPrivateIP(ip net.IP) bool {
-	privateBlocks := []net.IPNet{
-		{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
-		{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},
-		{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},
-	}
-	for _, block := range privateBlocks {
-		if block.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }

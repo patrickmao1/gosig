@@ -1,8 +1,14 @@
 package blockchain
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"github.com/patrickmao1/gosig/crypto"
+	"github.com/patrickmao1/gosig/utils"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -71,7 +77,7 @@ func (c *NodeConfig) Me() *Validator {
 	if c.myIndex != nil {
 		return c.Validators[*c.myIndex]
 	}
-	myIP, err := getPrivateIP()
+	myIP, err := utils.GetPrivateIP()
 	if err != nil {
 		log.Fatal("failed to get private ip", err)
 	}
@@ -97,4 +103,66 @@ func (c *NodeConfig) MyValidatorIndex() uint32 {
 
 func (c *NodeConfig) ProposalStageDuration() time.Duration {
 	return time.Duration(c.ProposalStageDurationMs) * time.Millisecond
+}
+
+func (c *NodeConfig) AgreementStateDuration() time.Duration {
+	return time.Duration(c.AgreementStateDurationMs) * time.Millisecond
+}
+
+func (c *NodeConfig) RoundDuration() time.Duration {
+	return c.ProposalStageDuration() + c.AgreementStateDuration()
+}
+
+type NodeConfigs struct {
+	Configs []*NodeConfig `yaml:"configs"`
+}
+
+func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
+	cfg := NodeConfig{
+		DbPath:                   "/app/runtime/gosig.db",
+		ProposalThreshold:        computeThreshold(len(nodes)),
+		GossipIntervalMs:         200,
+		GossipDegree:             2,
+		ProposalStageDurationMs:  4000,
+		AgreementStateDurationMs: 8000,
+	}
+	privkeys := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		bytes := strings.Split(node.IP, ".")
+		ipBytes := make([]byte, len(bytes))
+		for i, bs := range bytes {
+			n, err := strconv.Atoi(bs)
+			if err != nil {
+				panic(err)
+			}
+			if n > 255 {
+				panic("too big")
+			}
+			ipBytes[i] = byte(n)
+		}
+
+		bs := make([]byte, 8)
+		copy(bs[4:8], ipBytes)
+		seed := binary.BigEndian.Uint64(bs)
+
+		privkey, pubkey := crypto.GenKeyPairBytesFromSeed(int64(seed))
+		node.PubKeyHex = hex.EncodeToString(pubkey)
+		privkeys = append(privkeys, hex.EncodeToString(privkey))
+	}
+	cfgs = &NodeConfigs{}
+	for i := range nodes {
+		cp := cfg
+		cp.Validators = nodes
+		cp.PrivKeyHex = privkeys[i]
+		cfgs.Configs = append(cfgs.Configs, &cp)
+	}
+	return cfgs
+}
+
+func computeThreshold(n int) uint32 {
+	// T = f(N) such that the probability of no one proposing a block is 0.01
+	// T = 1 - e^(-4.60517/N),
+	const constant = 4.60517
+	t := 1.0 - math.Exp(-constant/float64(n))
+	return uint32(float64(math.MaxUint32) * t)
 }

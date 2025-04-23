@@ -1,6 +1,7 @@
 services:
   node1:
-    build: .
+    build:
+      dockerfile: ./tests/network/Dockerfile
     volumes:
       - ./tests/network/docker_volumes/node1:/app/runtime
     ports:
@@ -11,7 +12,8 @@ services:
         ipv4_address: 172.16.0.1
 
   node2:
-    build: .
+    build:
+      dockerfile: ./tests/network/Dockerfile
     ports:
       - 8082:8080
     volumes:
@@ -21,7 +23,8 @@ services:
         ipv4_address: 172.16.0.2
 
   node3:
-    build: .
+    build:
+      dockerfile: ./tests/network/Dockerfile
     ports:
       - 8083:8080
     volumes:
@@ -31,7 +34,8 @@ services:
         ipv4_address: 172.16.0.3
 
   node4:
-    build: .
+    build:
+      dockerfile: ./tests/network/Dockerfile
     ports:
       - 8084:8080
     volumes:
@@ -41,7 +45,8 @@ services:
         ipv4_address: 172.16.0.4
 
   node5:
-    build: .
+    build:
+      dockerfile: ./tests/network/Dockerfile
     ports:
       - 8085:8080
     volumes:

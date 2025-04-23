@@ -19,139 +19,139 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Node_SubmitTransaction_FullMethodName = "/gosig.Node/SubmitTransaction"
-	Node_TransactionStatus_FullMethodName = "/gosig.Node/TransactionStatus"
+	TransactionService_SubmitTransaction_FullMethodName = "/gosig.TransactionService/SubmitTransaction"
+	TransactionService_TransactionStatus_FullMethodName = "/gosig.TransactionService/TransactionStatus"
 )
 
-// NodeClient is the client API for Node service.
+// TransactionServiceClient is the client API for TransactionService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type NodeClient interface {
+type TransactionServiceClient interface {
 	SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*SubmitTransactionRes, error)
 	TransactionStatus(ctx context.Context, in *TransactionStatusReq, opts ...grpc.CallOption) (*TransactionStatusRes, error)
 }
 
-type nodeClient struct {
+type transactionServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewNodeClient(cc grpc.ClientConnInterface) NodeClient {
-	return &nodeClient{cc}
+func NewTransactionServiceClient(cc grpc.ClientConnInterface) TransactionServiceClient {
+	return &transactionServiceClient{cc}
 }
 
-func (c *nodeClient) SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*SubmitTransactionRes, error) {
+func (c *transactionServiceClient) SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*SubmitTransactionRes, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitTransactionRes)
-	err := c.cc.Invoke(ctx, Node_SubmitTransaction_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, TransactionService_SubmitTransaction_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *nodeClient) TransactionStatus(ctx context.Context, in *TransactionStatusReq, opts ...grpc.CallOption) (*TransactionStatusRes, error) {
+func (c *transactionServiceClient) TransactionStatus(ctx context.Context, in *TransactionStatusReq, opts ...grpc.CallOption) (*TransactionStatusRes, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TransactionStatusRes)
-	err := c.cc.Invoke(ctx, Node_TransactionStatus_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, TransactionService_TransactionStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// NodeServer is the server API for Node service.
-// All implementations must embed UnimplementedNodeServer
+// TransactionServiceServer is the server API for TransactionService service.
+// All implementations must embed UnimplementedTransactionServiceServer
 // for forward compatibility.
-type NodeServer interface {
+type TransactionServiceServer interface {
 	SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error)
 	TransactionStatus(context.Context, *TransactionStatusReq) (*TransactionStatusRes, error)
-	mustEmbedUnimplementedNodeServer()
+	mustEmbedUnimplementedTransactionServiceServer()
 }
 
-// UnimplementedNodeServer must be embedded to have
+// UnimplementedTransactionServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedNodeServer struct{}
+type UnimplementedTransactionServiceServer struct{}
 
-func (UnimplementedNodeServer) SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error) {
+func (UnimplementedTransactionServiceServer) SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitTransaction not implemented")
 }
-func (UnimplementedNodeServer) TransactionStatus(context.Context, *TransactionStatusReq) (*TransactionStatusRes, error) {
+func (UnimplementedTransactionServiceServer) TransactionStatus(context.Context, *TransactionStatusReq) (*TransactionStatusRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TransactionStatus not implemented")
 }
-func (UnimplementedNodeServer) mustEmbedUnimplementedNodeServer() {}
-func (UnimplementedNodeServer) testEmbeddedByValue()              {}
+func (UnimplementedTransactionServiceServer) mustEmbedUnimplementedTransactionServiceServer() {}
+func (UnimplementedTransactionServiceServer) testEmbeddedByValue()                            {}
 
-// UnsafeNodeServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to NodeServer will
+// UnsafeTransactionServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to TransactionServiceServer will
 // result in compilation errors.
-type UnsafeNodeServer interface {
-	mustEmbedUnimplementedNodeServer()
+type UnsafeTransactionServiceServer interface {
+	mustEmbedUnimplementedTransactionServiceServer()
 }
 
-func RegisterNodeServer(s grpc.ServiceRegistrar, srv NodeServer) {
-	// If the following call pancis, it indicates UnimplementedNodeServer was
+func RegisterTransactionServiceServer(s grpc.ServiceRegistrar, srv TransactionServiceServer) {
+	// If the following call pancis, it indicates UnimplementedTransactionServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&Node_ServiceDesc, srv)
+	s.RegisterService(&TransactionService_ServiceDesc, srv)
 }
 
-func _Node_SubmitTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _TransactionService_SubmitTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SubmitTransactionReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServer).SubmitTransaction(ctx, in)
+		return srv.(TransactionServiceServer).SubmitTransaction(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Node_SubmitTransaction_FullMethodName,
+		FullMethod: TransactionService_SubmitTransaction_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServer).SubmitTransaction(ctx, req.(*SubmitTransactionReq))
+		return srv.(TransactionServiceServer).SubmitTransaction(ctx, req.(*SubmitTransactionReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Node_TransactionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _TransactionService_TransactionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TransactionStatusReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(NodeServer).TransactionStatus(ctx, in)
+		return srv.(TransactionServiceServer).TransactionStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: Node_TransactionStatus_FullMethodName,
+		FullMethod: TransactionService_TransactionStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NodeServer).TransactionStatus(ctx, req.(*TransactionStatusReq))
+		return srv.(TransactionServiceServer).TransactionStatus(ctx, req.(*TransactionStatusReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// Node_ServiceDesc is the grpc.ServiceDesc for Node service.
+// TransactionService_ServiceDesc is the grpc.ServiceDesc for TransactionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var Node_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "gosig.Node",
-	HandlerType: (*NodeServer)(nil),
+var TransactionService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "gosig.TransactionService",
+	HandlerType: (*TransactionServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "SubmitTransaction",
-			Handler:    _Node_SubmitTransaction_Handler,
+			Handler:    _TransactionService_SubmitTransaction_Handler,
 		},
 		{
 			MethodName: "TransactionStatus",
-			Handler:    _Node_TransactionStatus_Handler,
+			Handler:    _TransactionService_TransactionStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

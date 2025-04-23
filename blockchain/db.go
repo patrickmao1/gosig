@@ -48,6 +48,18 @@ func (db *DB) GetBlockHeader(blockHash []byte) (*types.BlockHeader, error) {
 	return header, err
 }
 
+func (db *DB) PutBlockHeader(blockHeader *types.BlockHeader) error {
+	bs, err := proto.Marshal(blockHeader)
+	if err != nil {
+		return err
+	}
+	return db.Put(blockHeaderKey(blockHeader.Hash()), bs, nil)
+}
+
+func (db *DB) PutHeadBlock(blockHash []byte) error {
+	return db.Put(headKey, blockHash, nil)
+}
+
 func (db *DB) GetHeadBlock() (*types.BlockHeader, error) {
 	headHash, err := db.Get(headKey, nil)
 	if err != nil {

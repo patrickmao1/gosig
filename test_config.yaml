@@ -1,0 +1,116 @@
+configs:
+    - db_path: /app/runtime/gosig.db
+      priv_key_hex: 62c2d527f5123ac76e5690894ae3687fdbb7e4d8cd6b2d4484ad41eb2965ef1a
+      proposal_threshold: 2585109953
+      gossip_interval: 200
+      gossip_degree: 2
+      proposal_stage_duration_ms: 4000
+      agreement_state_duration_ms: 8000
+      validators:
+        - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ip: 172.16.0.1
+          port: 9090
+        - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ip: 172.16.0.2
+          port: 9090
+        - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ip: 172.16.0.3
+          port: 9090
+        - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ip: 172.16.0.4
+          port: 9090
+        - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ip: 172.16.0.5
+          port: 9090
+    - db_path: /app/runtime/gosig.db
+      priv_key_hex: 37474be32690a9e881b1c7e2606e9cc80733f997a8e99771a0d2a592229aa664
+      proposal_threshold: 2585109953
+      gossip_interval: 200
+      gossip_degree: 2
+      proposal_stage_duration_ms: 4000
+      agreement_state_duration_ms: 8000
+      validators:
+        - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ip: 172.16.0.1
+          port: 9090
+        - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ip: 172.16.0.2
+          port: 9090
+        - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ip: 172.16.0.3
+          port: 9090
+        - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ip: 172.16.0.4
+          port: 9090
+        - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ip: 172.16.0.5
+          port: 9090
+    - db_path: /app/runtime/gosig.db
+      priv_key_hex: 159050fbf0392f07dd96c0322706d4e22fce75eb6d8606a5d6f36cb08c4e85a6
+      proposal_threshold: 2585109953
+      gossip_interval: 200
+      gossip_degree: 2
+      proposal_stage_duration_ms: 4000
+      agreement_state_duration_ms: 8000
+      validators:
+        - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ip: 172.16.0.1
+          port: 9090
+        - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ip: 172.16.0.2
+          port: 9090
+        - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ip: 172.16.0.3
+          port: 9090
+        - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ip: 172.16.0.4
+          port: 9090
+        - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ip: 172.16.0.5
+          port: 9090
+    - db_path: /app/runtime/gosig.db
+      priv_key_hex: 7211b6b962c0ec28d0f9198cab950d4cb6548ad4f8b0f43af4512d2a8562ad80
+      proposal_threshold: 2585109953
+      gossip_interval: 200
+      gossip_degree: 2
+      proposal_stage_duration_ms: 4000
+      agreement_state_duration_ms: 8000
+      validators:
+        - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ip: 172.16.0.1
+          port: 9090
+        - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ip: 172.16.0.2
+          port: 9090
+        - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ip: 172.16.0.3
+          port: 9090
+        - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ip: 172.16.0.4
+          port: 9090
+        - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ip: 172.16.0.5
+          port: 9090
+    - db_path: /app/runtime/gosig.db
+      priv_key_hex: 48d27bdf2f3b8250ccea73ad13cd41a6a2869c317aadf299cb76c73dff96241d
+      proposal_threshold: 2585109953
+      gossip_interval: 200
+      gossip_degree: 2
+      proposal_stage_duration_ms: 4000
+      agreement_state_duration_ms: 8000
+      validators:
+        - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ip: 172.16.0.1
+          port: 9090
+        - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ip: 172.16.0.2
+          port: 9090
+        - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ip: 172.16.0.3
+          port: 9090
+        - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ip: 172.16.0.4
+          port: 9090
+        - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ip: 172.16.0.5
+          port: 9090
