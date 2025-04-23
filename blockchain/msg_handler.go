@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (s *Service) startProcessingMsgs() error {
+func (s *Service) startProcessingMsgs() {
 	log.Infoln("Starting processing messages")
 	for {
 		msgs := s.inMsgs.DequeueAll() // blocking if no msg
@@ -41,8 +41,8 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 
 func (s *Service) handleProposal(prop *types.BlockProposal) error {
 	log.Infof("handleProposal %s", prop.ToString())
-	s.rmu.RLock()
-	defer s.rmu.RUnlock()
+	s.rmu.Lock()
+	defer s.rmu.Unlock()
 	if prop.Round != s.round.Load() {
 		log.Warnf("received proposal for round %d but current round is %d", prop.Round, s.round)
 		return nil
@@ -57,9 +57,8 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 		log.Warnf("received invalid proposal")
 		return nil
 	}
-	s.rmu.Lock()
+
 	s.proposals[prop.ProposerIndex] = prop
-	s.rmu.Unlock()
 
 	// relay the newly received proposal
 	msg := &types.Message{
@@ -71,7 +70,7 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 }
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
-	log.Infof("handlePrepare %+v", incPrep)
+	log.Infof("handlePrepare %s", incPrep.ToString())
 	s.rmu.RLock()
 	if incPrep.Cert.Round != s.round.Load() {
 		s.rmu.RUnlock()
@@ -92,7 +91,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			// No prep found means either I'm not prepared for this round
 			// or my round has ended and I have deleted it.
 			// According to the paper, I should only handle prepare msgs if I'm prepared
-			log.Debugf("no prepare found for %s", s.prepareKey())
+			log.Infof("no prepare found for %s", s.prepareKey())
 			return nil
 		}
 		myPrep := myPrepMsg.GetPrepare()
@@ -146,7 +145,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 }
 
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
-	log.Infof("handleTC %+v", incTc)
+	log.Infof("handleTC %s", incTc.ToString())
 	// merge tc with my tc of this round
 	s.rmu.RLock()
 	if incTc.Cert.Round != s.round.Load() {
@@ -271,8 +270,7 @@ func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
 }
 
 func (s *Service) isValidProposal(prop *types.BlockProposal) bool {
-	s.rmu.RLock()
-	defer s.rmu.RUnlock()
+	// no need to lock here cuz the caller has the lock
 
 	// Verify RNG is generated correctly with the proposer's private key
 	log.Debugf("verifying RNG: pubkey %x.., rseed %x, proof %x..",
