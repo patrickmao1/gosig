@@ -44,6 +44,12 @@ func GenKeyPairBytes() (priv, pub []byte) {
 	return privkey.ToBytes(), g1.ToCompressed(pubkey)
 }
 
+func CalcPubKeyBytes(privkey []byte) []byte {
+	g1 := bls12381.NewG1()
+	pubkey := CalcPubKey(bytes2Fr(privkey))
+	return g1.ToCompressed(pubkey)
+}
+
 func SignBytes(privKey []byte, message []byte) []byte {
 	sig := Sign(bytes2Fr(privKey), message)
 	return bls12381.NewG2().ToCompressed(sig)

@@ -32,6 +32,9 @@ func main() {
 
 	// parse configs
 	cfg := getMyConfig(configPath)
+	for i, val := range cfg.Validators {
+		log.Infof("Validator #%d: pubkey %x..", i, val.GetPubKey()[:8])
+	}
 
 	// init db
 	err = os.RemoveAll(cfg.DbPath) // start from a clean db

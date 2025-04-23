@@ -34,6 +34,13 @@ func GenKeyPair() (priv *bls12381.Fr, pub *bls12381.PointG1) {
 	return privKey, pubKey
 }
 
+func CalcPubKey(privkey *bls12381.Fr) *bls12381.PointG1 {
+	g1 := bls12381.NewG1()
+	pubKey := g1.New()
+	g1.MulScalar(pubKey, g1.One(), privkey)
+	return pubKey
+}
+
 func hashToG2(message []byte) *bls12381.PointG2 {
 	digest := blake2b.Sum256(message)
 	dst := []byte("BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_")

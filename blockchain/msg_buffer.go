@@ -118,7 +118,8 @@ func (b *InboundMsgBuffer) Enqueue(msgs []*types.Envelope) {
 			continue
 		}
 		if !ok {
-			log.Errorf("failed to enqueue: sig verification failed: sig %x", msg.Sig)
+			log.Infof("msg from vi %d, pubkey %x..: sig verification failed: sig %x.., msg %s",
+				msg.ValidatorIndex, b.vals.PubKeys()[msg.ValidatorIndex][:8], msg.Sig[:8], msg.Msg.ToString())
 			continue
 		}
 		signedMsgs = append(signedMsgs, msg)
@@ -149,5 +150,6 @@ func (b *InboundMsgBuffer) checkSig(signedMsg *types.Envelope) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return crypto.VerifySigBytes(pubKey, msgBytes, signedMsg.Sig), nil
+	pass := crypto.VerifySigBytes(pubKey, msgBytes, signedMsg.Sig)
+	return pass, err
 }

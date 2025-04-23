@@ -40,7 +40,7 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 }
 
 func (s *Service) handleProposal(prop *types.BlockProposal) error {
-	log.Infof("handleProposal %+v", prop)
+	log.Infof("handleProposal %s", prop.ToString())
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
 	if prop.Round != s.round.Load() {
@@ -54,7 +54,7 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 	}
 	// check proposal proof
 	if !s.isValidProposal(prop) {
-		log.Warnf("received invalid proposal %v", prop)
+		log.Warnf("received invalid proposal")
 		return nil
 	}
 	s.rmu.Lock()
@@ -62,7 +62,10 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 	s.rmu.Unlock()
 
 	// relay the newly received proposal
-	msg := &types.Message{Message: &types.Message_Proposal{Proposal: prop}}
+	msg := &types.Message{
+		Message:  &types.Message_Proposal{Proposal: prop},
+		Deadline: s.roundProposalEndTime().UnixMilli(),
+	}
 	s.outMsgs.Put(s.proposalKey(prop.ProposerIndex), msg)
 	return nil
 }
@@ -272,19 +275,24 @@ func (s *Service) isValidProposal(prop *types.BlockProposal) bool {
 	defer s.rmu.RUnlock()
 
 	// Verify RNG is generated correctly with the proposer's private key
+	log.Debugf("verifying RNG: pubkey %x.., rseed %x, proof %x..",
+		s.cfg.Validators[prop.ProposerIndex].GetPubKey()[:8],
+		s.rseed,
+		prop.BlockHeader.ProposerProof[:8],
+	)
 	rngValid := crypto.VerifySigBytes(
 		s.cfg.Validators[prop.ProposerIndex].GetPubKey(),
 		s.rseed,
 		prop.BlockHeader.ProposerProof,
 	)
 	if !rngValid {
-		log.Errorf("proposal %s: invalid RNG", prop)
+		log.Errorf("proposal %s: invalid RNG", prop.ToString())
 		return false
 	}
 
 	// Proposer's score must be lower than the threshold
 	if prop.Score() >= s.cfg.ProposalThreshold {
-		log.Errorf("proposal %s: score too high %d", prop, prop.Score())
+		log.Errorf("proposal %s: score too high %d", prop.ToString(), prop.Score())
 		return false
 	}
 

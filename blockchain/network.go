@@ -76,9 +76,7 @@ func (n *Network) StartGossip() {
 		}
 
 		// send to randomized peers every time
-		rand.Shuffle(len(n.peers), func(i, j int) {
-			n.peers[i], n.peers[j] = n.peers[j], n.peers[i]
-		})
+		n.peers = pickRandN(n.peers, n.fanout)
 
 		ctx, cancel := context.WithTimeout(context.Background(), n.interval)
 		done := make(chan struct{})
@@ -200,4 +198,16 @@ func (n *Network) listen() {
 
 		n.in.Enqueue(ms.Msgs)
 	}
+}
+
+func pickRandN[T any](input []T, n int) []T {
+	if n > len(input) {
+		n = len(input)
+	}
+	indices := rand.Perm(len(input))[:n]
+	result := make([]T, n)
+	for i, idx := range indices {
+		result[i] = input[idx]
+	}
+	return result
 }

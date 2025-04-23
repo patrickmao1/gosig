@@ -181,6 +181,8 @@ func (s *Service) proposeIfChosen() error {
 		return nil
 	}
 	log.WithField("round", s.round.Load()).Infof("I am a proposer!")
+	log.Debugf("RNG info: pubkey %x.., rseed %x, proof %x..",
+		s.cfg.Validators.PubKeys()[s.cfg.MyValidatorIndex()][:8], s.rseed, proposerProof[:8])
 
 	// build a block
 	headHash := s.head.Hash()
