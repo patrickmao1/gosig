@@ -93,8 +93,7 @@ func (s *Service) Start() {
 		// initialize round number and seed
 		err := s.initRoundState()
 		if err != nil {
-			log.Errorln(err)
-			continue
+			log.Fatal(err)
 		}
 
 		log.Infof("new round %d, proposalStageEnd in %s", s.round.Load(), s.cfg.ProposalStageDuration())
@@ -103,12 +102,16 @@ func (s *Service) Start() {
 		err = s.proposeIfChosen()
 		if err != nil {
 			log.Errorln(err)
-			continue
+			// we don't continue the loop here as we still want to participate the next stage
 		}
 
 		// block until the end of the proposal stage
 		<-proposalStageEnd
 		log.WithField("round", s.round.Load()).Infof("proposal stage ended")
+		// reset round timer
+		nextRoundTime = s.nextRoundTime()
+		log.WithField("round", s.round.Load()).Infof("now %s, nextRoundTime %s", time.Now(), nextRoundTime)
+		t.Reset(time.Until(nextRoundTime))
 
 		/*
 		 * Stage 2: BFT agreement
@@ -131,14 +134,7 @@ func (s *Service) Start() {
 				log.Errorln("failed to prepare", err)
 				continue
 			}
-		} else {
-			log.Infof("no block decided for round %d", s.round.Load())
 		}
-
-		// reset round timer
-		nextRoundTime = s.nextRoundTime()
-		log.WithField("round", s.round.Load()).Infof("now %s, nextRoundTime %s", time.Now(), nextRoundTime)
-		t.Reset(time.Until(nextRoundTime))
 	}
 }
 
@@ -199,6 +195,7 @@ func (s *Service) proposeIfChosen() error {
 	}
 
 	var txs []*types.SignedTransaction
+	var cert *types.Certificate
 	if errors.Is(err, leveldb.ErrNotFound) {
 		log.Infof("no tc block found, proposing a new block")
 		// no tc block found, we propose a new block
@@ -208,7 +205,7 @@ func (s *Service) proposeIfChosen() error {
 		if err != nil {
 			return err
 		}
-		header.ProposalCert = headTcCert
+		cert = headTcCert
 	} else { // TC block found.
 		log.Infof("tc block found, proposing tc block %s", tcBlock.Hash())
 		// Sanity check. If these aren't the same then I wouldn't have TC'd that block
@@ -220,7 +217,7 @@ func (s *Service) proposeIfChosen() error {
 		if err != nil {
 			return err
 		}
-		header.ProposalCert = pCert
+		cert = pCert
 	}
 	if len(txs) == 0 {
 		return nil
@@ -230,6 +227,7 @@ func (s *Service) proposeIfChosen() error {
 	proposal := &types.BlockProposal{
 		Round:       s.round.Load(),
 		BlockHeader: header,
+		Cert:        cert,
 	}
 	msg := &types.Message{
 		Message:  &types.Message_Proposal{Proposal: proposal},
@@ -245,6 +243,7 @@ func (s *Service) proposeIfChosen() error {
 func (s *Service) decideBlock() (*types.BlockHeader, error) {
 	// no proposals received, leaving the round empty
 	if len(s.proposals) == 0 {
+		log.Infof("no block proposals for round %d", s.round.Load())
 		return nil, nil
 	}
 
@@ -272,7 +271,7 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 	// block TC'd by the proposer in the previous round. If the new proposal has a cert round >
 	// my tc_round, then it implies that their view of the blockchain is newer than mine. Thus,
 	// I can just use their proposal
-	if minProposal.BlockHeader.ProposalCert.Round > pCert.Round {
+	if minProposal.Cert.Round > pCert.Round {
 		return minProposal.BlockHeader, nil
 	}
 
@@ -284,7 +283,7 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 	var proposalsWithTcBlock []*types.BlockProposal
 	for _, proposal := range s.proposals {
 		if bytes.Equal(proposal.BlockHeader.Hash(), tcBlock.Hash()) &&
-			proposal.BlockHeader.ProposalCert.Round >= pCert.Round {
+			proposal.Cert.Round >= pCert.Round {
 			proposalsWithTcBlock = append(proposalsWithTcBlock, proposal)
 		}
 	}

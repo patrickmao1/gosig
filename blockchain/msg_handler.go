@@ -125,14 +125,15 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			}
 
 			// initiate a tc if I haven't yet
-			tc, ok := buf.Get(s.tcKey())
+			tcMsg, ok := buf.Get(s.tcKey())
 			// I already have a TC msg. This could either mean that I have previously processed
 			// P msgs that reached quorum so that I initiated a TC, or that I have received a TC
 			// msg before I collect quorum sigs form P. In the former case, I have signed the TC
 			// msg, no need to sign it again. In the latter case, I need to add my TC signature.
 			if ok {
-				if tc.GetTc().Cert.SigCounts[s.cfg.MyValidatorIndex()] == 0 {
+				if tcMsg.GetTc().Cert.SigCounts[s.cfg.MyValidatorIndex()] == 0 {
 					// TODO
+					log.Fatal("TODO implement me")
 				}
 			}
 			if !buf.Has(s.tcKey()) {
@@ -273,13 +274,38 @@ func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
 func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
-	// verify RNG is generated correctly with the proposer's private key
+
+	// Verify RNG is generated correctly with the proposer's private key
 	rngValid := crypto.VerifySigBytes(s.cfg.Validators[vi].GetPubKey(), s.rseed, prop.BlockHeader.ProposerProof)
 	if !rngValid {
+		log.Errorf("proposal %s: invalid RNG", prop)
 		return false
 	}
-	// proposer's score must be lower than the threshold
-	return prop.Score() < s.cfg.ProposalThreshold
+
+	// Proposer's score must be lower than the threshold
+	if prop.Score() >= s.cfg.ProposalThreshold {
+		log.Errorf("proposal %s: score too high %d", prop, prop.Score())
+		return false
+	}
+
+	// Check proposal cert
+	// Assuming it's a newly proposed block (not a previously tc'd block)
+	// The cert is the TC cert of the previous block
+	block := prop.BlockHeader
+	pass := s.checkCert(block.ParentHash, prop.Cert)
+	if pass {
+		return true
+	}
+
+	// Assuming it's a previously TC'd block
+	// The cert is the P-cert of the TC'd block
+	prep := &types.Prepare{BlockHash: block.Hash()}
+	bs, err := proto.Marshal(prep)
+	if err != nil {
+		log.Errorf("proposal %s: invalid cert", prop)
+		return false
+	}
+	return s.checkCert(bs, prop.Cert)
 }
 
 func (s *Service) checkSig(signedMsg *types.Envelope) (bool, error) {
@@ -289,4 +315,13 @@ func (s *Service) checkSig(signedMsg *types.Envelope) (bool, error) {
 		return false, err
 	}
 	return crypto.VerifySigBytes(pubKey, msgBytes, signedMsg.Sig), nil
+}
+
+func (s *Service) checkCert(data []byte, cert *types.Certificate) bool {
+	return crypto.VerifyAggSigBytes(
+		s.cfg.Validators.PubKeys(),
+		cert.SigCounts,
+		data,
+		cert.AggSig,
+	)
 }

@@ -27,12 +27,11 @@ message SignedTransactions { repeated SignedTransaction txs = 1; }
 message BlockHeader {
   uint32 height = 1;
   bytes parent_hash = 2;
-  Certificate proposal_cert = 3;
   // sign(privKey, Q^h), the preimage of the proposer score L^r
-  bytes proposer_proof = 4;
+  bytes proposer_proof = 3;
   // a flat hash of all transaction hashes in this block.
   // i.e. hash(hash(tx1) || hash(tx2) || ... || hash(txN))
-  bytes tx_root = 5;
+  bytes tx_root = 4;
 }
 
 message Envelope {
@@ -58,6 +57,7 @@ message Envelopes {
 message BlockProposal {
   uint32 round = 1;
   BlockHeader block_header = 2;
+  Certificate cert = 3; // either the P-cert of a TC block or the TC-cert of the previous block
 }
 
 message PrepareCertificate {
