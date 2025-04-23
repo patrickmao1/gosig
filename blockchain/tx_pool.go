@@ -22,7 +22,7 @@ func (p *TxPool) AppendTx(tx *types.SignedTransaction) error {
 	if err != nil {
 		return err
 	}
-	if crypto.VerifySigBytes(tx.Tx.From, txBytes, tx.Sig) {
+	if !crypto.VerifySigBytes(tx.Tx.From, txBytes, tx.Sig) {
 		return fmt.Errorf("invalid sig")
 	}
 

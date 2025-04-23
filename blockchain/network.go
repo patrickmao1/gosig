@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/types"
 	"github.com/patrickmao1/gosig/utils"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"math/rand"
@@ -67,12 +68,10 @@ func (n *Network) StartGossip() {
 	t := time.Tick(n.interval)
 	for {
 		ts := <-t
-		log.Debugf("start new gossip round: ts %s", ts)
 
 		msgs := n.out.List()
 
 		if len(msgs) == 0 {
-			log.Debugf("no messages in buffer")
 			continue
 		}
 
@@ -114,7 +113,7 @@ func (n *Network) StartGossip() {
 
 		select {
 		case <-done:
-			log.Debugf("gossip round done: start_ts %s", ts)
+			log.Debugf("gossip round done: sent %d msgs, start_ts %s", len(msgs), ts)
 			cancel()
 			continue
 		case <-ctx.Done():

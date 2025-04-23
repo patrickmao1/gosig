@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/patrickmao1/gosig/blockchain"
-	"github.com/patrickmao1/gosig/tx_server"
+	"github.com/patrickmao1/gosig/rpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"gopkg.in/yaml.v3"
@@ -24,10 +24,20 @@ func init() {
 func main() {
 	flag.Parse()
 
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.SetLevel(level)
+
 	// parse configs
 	cfg := getMyConfig(configPath)
 
 	// init db
+	err = os.RemoveAll(cfg.DbPath) // start from a clean db
+	if err != nil {
+		log.Fatal(err)
+	}
 	db, err := leveldb.OpenFile(cfg.DbPath, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -40,7 +50,7 @@ func main() {
 	txPool := blockchain.NewTxPool()
 
 	// service modules
-	txServer := tx_server.NewTxServer(txPool)
+	txServer := rpc.NewServer(txPool)
 	chain := blockchain.NewService(cfg, genesis, d, txPool)
 
 	// start services

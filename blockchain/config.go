@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/utils"
+	log "github.com/sirupsen/logrus"
 	"math"
 	"strconv"
 	"strings"

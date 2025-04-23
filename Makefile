@@ -11,5 +11,8 @@ gosig_up:
 	docker compose -f tests/gosig/compose.yaml --project-directory . up --build -d
 	docker compose -f tests/gosig/compose.yaml --project-directory . logs -f
 
+gosig_down:
+	docker compose -f tests/gosig/compose.yaml --project-directory . down
+
 config:
 	go run ./cmd/config_gen/main.go

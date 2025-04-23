@@ -1,38 +1,51 @@
 package gosig
 
 import (
+	"github.com/patrickmao1/gosig/blockchain"
+	"github.com/patrickmao1/gosig/client"
+	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"github.com/stretchr/testify/require"
+	"github.com/syndtr/goleveldb/leveldb"
 	"testing"
 )
 
-var clientURLs = []string{
+var rpcURLs = []string{
 	"localhost:8081",
 	"localhost:8082",
 	"localhost:8083",
 	"localhost:8084",
 	"localhost:8085",
 }
-
-var clients []types.TransactionServiceClient
+var pubkeys [][]byte
+var privkeys [][]byte
 
 func init() {
-	for _, url := range clientURLs {
-		clients = append(clients, newClient(url))
+	for i := 0; i < 10; i++ {
+		sk, pk := crypto.GenKeyPairBytesFromSeed(int64(i))
+		pubkeys = append(pubkeys, pk)
+		privkeys = append(privkeys, sk)
 	}
-}
-
-func newClient(url string) types.TransactionServiceClient {
-	dialOpt := grpc.WithTransportCredentials(insecure.NewCredentials())
-	cc, err := grpc.NewClient(url, dialOpt)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return types.NewTransactionServiceClient(cc)
 }
 
 func Test(t *testing.T) {
+	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	err := c.SubmitTx(&types.Transaction{
+		From:   pubkeys[0],
+		To:     pubkeys[1],
+		Amount: 123,
+	})
+	require.NoError(t, err)
+}
 
+func TestDB(t *testing.T) {
+	d, err := leveldb.OpenFile("./tests/gosig/docker_volumes/node1/gosig.db", nil)
+	require.NoError(t, err)
+	db := blockchain.NewDB(d)
+
+	head, err := db.GetHeadBlock()
+	require.NoError(t, err)
+
+	log.Println(head)
 }

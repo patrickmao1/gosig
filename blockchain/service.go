@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/blake2b"
 	"google.golang.org/protobuf/proto"
@@ -17,10 +17,8 @@ import (
 	"time"
 )
 
-var log = logrus.New()
-
 func init() {
-	log.SetReportCaller(true)
+	//log.SetReportCaller(true)
 }
 
 type Service struct {
@@ -28,8 +26,10 @@ type Service struct {
 	txPool *TxPool
 	nw     *Network
 
-	cfg     *NodeConfig
-	genesis *GenesisConfig
+	// initial configs
+	cfg              *NodeConfig
+	genesis          *GenesisConfig
+	genesisBlockHash []byte
 
 	// current round states
 	rmu       sync.RWMutex
@@ -76,6 +76,7 @@ func (s *Service) Start() {
 	log.Infoln("Starting blockchain service")
 
 	go s.nw.StartGossip()
+	go s.startProcessingMsgs()
 
 	nextRoundTime := s.nextRoundTime()
 	log.Infof("genesis time %s, current round %d, now %s, next round time %s",
@@ -96,8 +97,6 @@ func (s *Service) Start() {
 			log.Fatal(err)
 		}
 
-		log.Infof("new round %d, proposalStageEnd in %s", s.round.Load(), s.cfg.ProposalStageDuration())
-
 		// check if I'm a proposer and propose
 		err = s.proposeIfChosen()
 		if err != nil {
@@ -107,10 +106,8 @@ func (s *Service) Start() {
 
 		// block until the end of the proposal stage
 		<-proposalStageEnd
-		log.WithField("round", s.round.Load()).Infof("proposal stage ended")
 		// reset round timer
 		nextRoundTime = s.nextRoundTime()
-		log.WithField("round", s.round.Load()).Infof("now %s, nextRoundTime %s", time.Now(), nextRoundTime)
 		t.Reset(time.Until(nextRoundTime))
 
 		/*
@@ -142,6 +139,8 @@ func (s *Service) initRoundState() error {
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 
+	defer log.Infof("new round %d, head %x, rseed %x", s.round.Load(), s.head.Hash(), s.rseed)
+
 	s.proposals = make(map[uint32]*types.BlockProposal)
 	head, err := s.db.GetHeadBlock()
 	if err != nil && errors.Is(err, leveldb.ErrNotFound) {
@@ -152,7 +151,8 @@ func (s *Service) initRoundState() error {
 			return err
 		}
 		log.Infof("genesis block saved to db: %s", genesisBlock)
-		err = s.db.PutHeadBlock(genesisBlock.Hash())
+		s.genesisBlockHash = genesisBlock.Hash()
+		err = s.db.PutHeadBlock(s.genesisBlockHash)
 		if err != nil {
 			return err
 		}
@@ -176,7 +176,7 @@ func (s *Service) proposeIfChosen() error {
 	// determine if I should propose
 	proposalScore, proposerProof := crypto.VRF(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^h}(r^h,Q^{h-1})
 	log.WithField("round", s.round.Load()).
-		Infof("my proposer score %d, threshold %d", proposalScore, s.cfg.ProposalThreshold)
+		Debugf("my proposer score %d, threshold %d", proposalScore, s.cfg.ProposalThreshold)
 	if proposalScore >= s.cfg.ProposalThreshold {
 		return nil
 	}
@@ -196,16 +196,25 @@ func (s *Service) proposeIfChosen() error {
 
 	var txs []*types.SignedTransaction
 	var cert *types.Certificate
+
 	if errors.Is(err, leveldb.ErrNotFound) {
-		log.Infof("no tc block found, proposing a new block")
-		// no tc block found, we propose a new block
 		txs = s.txPool.Dump()
-		header.TxRoot = computeTxRoot(txs)
-		headTcCert, err := s.db.GetTcCert(headHash)
-		if err != nil {
-			return err
+		if len(txs) == 0 {
+			log.Infof("skip proposing: no tx in pool")
+			return nil
 		}
-		cert = headTcCert
+
+		header.TxRoot = computeTxRoot(txs)
+		log.Infof("proposing a new block with %d txs, txRoot %x", len(txs), header.TxRoot)
+
+		if !bytes.Equal(s.genesisBlockHash, headHash) {
+			// skip this if I'm still in genesis mode because the genesis block does not have a tc cert
+			headTcCert, err := s.db.GetTcCert(headHash)
+			if err != nil {
+				return fmt.Errorf("failed to GetTcCert for head block %x: %s", headHash, err.Error())
+			}
+			cert = headTcCert
+		}
 	} else { // TC block found.
 		log.Infof("tc block found, proposing tc block %s", tcBlock.Hash())
 		// Sanity check. If these aren't the same then I wouldn't have TC'd that block
@@ -225,9 +234,10 @@ func (s *Service) proposeIfChosen() error {
 
 	// build & sign proposal
 	proposal := &types.BlockProposal{
-		Round:       s.round.Load(),
-		BlockHeader: header,
-		Cert:        cert,
+		Round:         s.round.Load(),
+		BlockHeader:   header,
+		Cert:          cert,
+		ProposerIndex: s.cfg.MyValidatorIndex(),
 	}
 	msg := &types.Message{
 		Message:  &types.Message_Proposal{Proposal: proposal},
@@ -246,6 +256,9 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 		log.Infof("no block proposals for round %d", s.round.Load())
 		return nil, nil
 	}
+
+	log.WithField("round", s.round.Load()).
+		Infof("decide block: num proposals: %d", len(s.proposals))
 
 	// find the proposal with the lowest score
 	minProposalVi := uint32(0)

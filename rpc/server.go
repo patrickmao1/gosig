@@ -1,4 +1,4 @@
-package tx_server
+package rpc
 
 import (
 	"context"
@@ -9,32 +9,35 @@ import (
 	"net"
 )
 
-type TxServer struct {
-	types.UnsafeTransactionServiceServer
+type Server struct {
+	types.UnsafeRPCServer
 	pool *blockchain.TxPool
 }
 
-func NewTxServer(txPool *blockchain.TxPool) *TxServer {
-	return &TxServer{
+func NewServer(txPool *blockchain.TxPool) *Server {
+	return &Server{
 		pool: txPool,
 	}
 }
 
-func (s *TxServer) Start() {
+func (s *Server) Start() {
 	svr := grpc.NewServer()
 	lis, err := net.Listen("tcp", "0.0.0.0:8080")
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Infof("grpc listening on 0.0.0.0:8080")
-	types.RegisterTransactionServiceServer(svr, s)
+	types.RegisterRPCServer(svr, s)
 	err = svr.Serve(lis)
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func (s *TxServer) SubmitTransaction(ctx context.Context, req *types.SubmitTransactionReq) (*types.SubmitTransactionRes, error) {
+func (s *Server) SubmitTransaction(ctx context.Context, req *types.SubmitTransactionReq) (*types.SubmitTransactionRes, error) {
+	tx := req.GetTx().GetTx()
+	log.Infof("Got transaction: from %x, to %x, amount %d", tx.From, tx.To, tx.Amount)
+
 	err := s.pool.AppendTx(req.Tx)
 	if err != nil {
 		return nil, err
@@ -42,7 +45,7 @@ func (s *TxServer) SubmitTransaction(ctx context.Context, req *types.SubmitTrans
 	return &types.SubmitTransactionRes{}, nil
 }
 
-func (s *TxServer) TransactionStatus(ctx context.Context, req *types.TransactionStatusReq) (*types.TransactionStatusRes, error) {
+func (s *Server) TransactionStatus(ctx context.Context, req *types.TransactionStatusReq) (*types.TransactionStatusRes, error) {
 	//TODO implement me
 	panic("implement me")
 }

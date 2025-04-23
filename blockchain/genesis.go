@@ -28,7 +28,6 @@ func NewGenesisBlock(initSeed []byte) *types.BlockHeader {
 	return &types.BlockHeader{
 		Height:        0,
 		ParentHash:    initSeed[:],
-		ProposalCert:  nil,
 		ProposerProof: initSeed[:],
 		TxRoot:        nil,
 	}

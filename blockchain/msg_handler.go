@@ -6,6 +6,7 @@ import (
 	bls12381 "github.com/kilic/bls12-381"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -21,21 +22,11 @@ func (s *Service) startProcessingMsgs() error {
 }
 
 func (s *Service) handleMessage(signedMsg *types.Envelope) {
-	pass, err := s.checkSig(signedMsg)
-	if err != nil {
-		log.Error("handleMessage", err)
-		return
-	}
-	if !pass {
-		log.Warnf("handleMessage: incorrect signature for message %v", signedMsg)
-		return
-	}
-
 	msg := signedMsg.Msg
-
+	var err error
 	switch signedMsg.Msg.Message.(type) {
 	case *types.Message_Proposal:
-		err = s.handleProposal(signedMsg.ValidatorIndex, msg.GetProposal())
+		err = s.handleProposal(msg.GetProposal())
 	case *types.Message_Prepare:
 		err = s.handlePrepare(msg.GetPrepare())
 	case *types.Message_Tc:
@@ -43,10 +34,13 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 	default:
 		err = fmt.Errorf("handleMessage: unknown message type. msg %v", signedMsg)
 	}
-	log.Errorln("handleMessage", err)
+	if err != nil {
+		log.Errorln("handleMessage err:", err)
+	}
 }
 
-func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
+func (s *Service) handleProposal(prop *types.BlockProposal) error {
+	log.Infof("handleProposal %+v", prop)
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
 	if prop.Round != s.round.Load() {
@@ -59,21 +53,22 @@ func (s *Service) handleProposal(vi uint32, prop *types.BlockProposal) error {
 		// We don't put back the proposal to queue because we expect to receive it again from gossip
 	}
 	// check proposal proof
-	if !s.isValidProposal(vi, prop) {
+	if !s.isValidProposal(prop) {
 		log.Warnf("received invalid proposal %v", prop)
 		return nil
 	}
 	s.rmu.Lock()
-	s.proposals[vi] = prop
+	s.proposals[prop.ProposerIndex] = prop
 	s.rmu.Unlock()
 
 	// relay the newly received proposal
 	msg := &types.Message{Message: &types.Message_Proposal{Proposal: prop}}
-	s.outMsgs.Put(s.proposalKey(vi), msg)
+	s.outMsgs.Put(s.proposalKey(prop.ProposerIndex), msg)
 	return nil
 }
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
+	log.Infof("handlePrepare %+v", incPrep)
 	s.rmu.RLock()
 	if incPrep.Cert.Round != s.round.Load() {
 		s.rmu.RUnlock()
@@ -148,6 +143,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 }
 
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
+	log.Infof("handleTC %+v", incTc)
 	// merge tc with my tc of this round
 	s.rmu.RLock()
 	if incTc.Cert.Round != s.round.Load() {
@@ -271,12 +267,16 @@ func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
 	}, nil
 }
 
-func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
+func (s *Service) isValidProposal(prop *types.BlockProposal) bool {
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
 
 	// Verify RNG is generated correctly with the proposer's private key
-	rngValid := crypto.VerifySigBytes(s.cfg.Validators[vi].GetPubKey(), s.rseed, prop.BlockHeader.ProposerProof)
+	rngValid := crypto.VerifySigBytes(
+		s.cfg.Validators[prop.ProposerIndex].GetPubKey(),
+		s.rseed,
+		prop.BlockHeader.ProposerProof,
+	)
 	if !rngValid {
 		log.Errorf("proposal %s: invalid RNG", prop)
 		return false
@@ -289,14 +289,18 @@ func (s *Service) isValidProposal(vi uint32, prop *types.BlockProposal) bool {
 	}
 
 	// Check proposal cert
+	block := prop.BlockHeader
+	// if the previous block is the genesis block then it doesn't have a proposal cert
+	if bytes.Equal(block.ParentHash, s.genesisBlockHash) {
+		log.Infof("skip validating proposal cert because parent is genesis block")
+		return true
+	}
 	// Assuming it's a newly proposed block (not a previously tc'd block)
 	// The cert is the TC cert of the previous block
-	block := prop.BlockHeader
 	pass := s.checkCert(block.ParentHash, prop.Cert)
 	if pass {
 		return true
 	}
-
 	// Assuming it's a previously TC'd block
 	// The cert is the P-cert of the TC'd block
 	prep := &types.Prepare{BlockHash: block.Hash()}

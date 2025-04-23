@@ -6,7 +6,7 @@ option go_package = "./types";
 
 import "gosig.proto";
 
-service TransactionService {
+service RPC {
     rpc SubmitTransaction(SubmitTransactionReq) returns (SubmitTransactionRes);
     rpc TransactionStatus(TransactionStatusReq) returns (TransactionStatusRes);
 }

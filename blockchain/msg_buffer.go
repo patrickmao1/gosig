@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
 	"time"
@@ -113,11 +114,14 @@ func (b *InboundMsgBuffer) Enqueue(msgs []*types.Envelope) {
 	for _, msg := range msgs {
 		ok, err := b.checkSig(msg)
 		if err != nil {
-			log.Errorf("failed to enqueue: sig verification failed for msg %+v, err: %s", msg, err.Error())
+			log.Errorf("failed to enqueue: err %s", err.Error())
+			continue
 		}
-		if ok {
-			signedMsgs = append(signedMsgs, msg)
+		if !ok {
+			log.Errorf("failed to enqueue: sig verification failed: sig %x", msg.Sig)
+			continue
 		}
+		signedMsgs = append(signedMsgs, msg)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
