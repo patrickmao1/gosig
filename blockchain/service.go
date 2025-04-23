@@ -139,8 +139,6 @@ func (s *Service) initRoundState() error {
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 
-	defer log.Infof("new round %d, head %x, rseed %x", s.round.Load(), s.head.Hash(), s.rseed)
-
 	s.proposals = make(map[uint32]*types.BlockProposal)
 	head, err := s.db.GetHeadBlock()
 	if err != nil && errors.Is(err, leveldb.ErrNotFound) {
@@ -168,6 +166,8 @@ func (s *Service) initRoundState() error {
 	b := make([]byte, 4)
 	binary.BigEndian.PutUint32(b, s.round.Load())
 	s.rseed = slices.Concat(b, seed[:])
+
+	log.Infof("new round %d, head %x, rseed %x", s.round.Load(), s.head.Hash(), s.rseed)
 
 	return nil
 }
@@ -253,9 +253,12 @@ func (s *Service) proposeIfChosen() error {
 }
 
 func (s *Service) decideBlock() (*types.BlockHeader, error) {
+	s.rmu.RLock()
+	defer s.rmu.RUnlock()
+
 	// no proposals received, leaving the round empty
 	if len(s.proposals) == 0 {
-		log.Infof("no block proposals for round %d", s.round.Load())
+		log.Infof("decideBlock: no block proposals for round %d", s.round.Load())
 		return nil, nil
 	}
 
@@ -263,13 +266,12 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 		Infof("decide block: num proposals: %d", len(s.proposals))
 
 	// find the proposal with the lowest score
-	minProposalVi := uint32(0)
-	for vi, proposal := range s.proposals {
-		if proposal.Score() < s.proposals[minProposalVi].Score() {
-			minProposalVi = vi
+	var minProposal *types.BlockProposal
+	for _, proposal := range s.proposals {
+		if minProposal == nil || proposal.Score() < minProposal.Score() {
+			minProposal = proposal
 		}
 	}
-	minProposal := s.proposals[minProposalVi]
 
 	tcBlock, pCert, err := s.db.GetTcState()
 	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
