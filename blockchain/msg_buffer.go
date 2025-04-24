@@ -15,7 +15,7 @@ type OutboundMsgBuffer struct {
 	myValIndex uint32
 
 	msgs map[string]*types.Envelope
-	mu   sync.Mutex
+	mu   sync.RWMutex
 }
 
 func NewOutboundMsgBuffer(myPrivKey []byte, myValIndex uint32) *OutboundMsgBuffer {
@@ -33,21 +33,29 @@ func (b *OutboundMsgBuffer) Put(key string, msg *types.Message) {
 }
 
 func (b *OutboundMsgBuffer) Get(key string) (*types.Message, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	msg, ok := b.msgs[key]
+	if !ok {
+		return nil, false
+	}
 	return msg.Msg, ok
 }
 
 func (b *OutboundMsgBuffer) Tx(doInTx func(buf *OutboundMsgBuffer) error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return doInTx(b)
+	tx := &OutboundMsgBuffer{
+		myPrivkey:  b.myPrivkey,
+		myValIndex: b.myValIndex,
+		msgs:       b.msgs,
+	}
+	return doInTx(tx)
 }
 
 func (b *OutboundMsgBuffer) Has(key string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	_, ok := b.msgs[key]
 	return ok
 }
@@ -124,6 +132,7 @@ func (b *InboundMsgBuffer) Enqueue(msgs []*types.Envelope) {
 		}
 		signedMsgs = append(signedMsgs, msg)
 	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.msgs = append(b.msgs, msgs...)
@@ -131,6 +140,8 @@ func (b *InboundMsgBuffer) Enqueue(msgs []*types.Envelope) {
 }
 
 func (b *InboundMsgBuffer) DequeueAll() []*types.Envelope {
+	// Perf: maybe buffer and deduplicate msgs
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

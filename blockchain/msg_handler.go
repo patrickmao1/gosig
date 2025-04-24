@@ -40,7 +40,7 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 }
 
 func (s *Service) handleProposal(prop *types.BlockProposal) error {
-	log.Infof("handleProposal %s", prop.ToString())
+	log.Infof("handleProposal: block hash %x.., block %s", prop.BlockHeader.Hash()[:8], prop.ToString())
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 	if prop.Round != s.round.Load() {
@@ -97,7 +97,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 		myPrep := myPrepMsg.GetPrepare()
 
 		if !bytes.Equal(myPrep.Msg.BlockHash, incPrep.Msg.BlockHash) {
-			return fmt.Errorf("got prepare different from mine: theirs %+v, mine %+v", incPrep, myPrep)
+			return fmt.Errorf("got prepare different from mine: theirs %s, mine %s", incPrep.ToString(), myPrep.ToString())
 		}
 
 		// Merge prepare with my prepare state of this round
@@ -112,14 +112,17 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 		}
 		mergedMsg.Message = &types.Message_Prepare{Prepare: mergedPrep}
 		buf.Put(s.prepareKey(), mergedMsg)
+		log.Infof("saved merged prepare %s", mergedMsg.ToString())
 
 		if mergedPrep.Cert.NumSigned() >= s.cfg.Quorum() {
+			log.Infof("handlePrepare: reached quorum %d", mergedPrep.Cert.NumSigned())
 			// persist the prepare cert because if this block is later TC'd by me but never committed, I'll need to
 			// re-propose this block with its P-cert as the proposal certificate.
 			err := s.db.PutPCert(mergedPrep.Msg.BlockHash, mergedPrep.Cert)
 			if err != nil {
 				return err
 			}
+			log.Infof("saved PrepareCert %s", mergedPrep.Cert.ToString())
 
 			// initiate a tc if I haven't yet
 			tcMsg, ok := buf.Get(s.tcKey())

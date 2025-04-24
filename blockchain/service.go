@@ -79,8 +79,8 @@ func (s *Service) Start() {
 	go s.startProcessingMsgs()
 
 	nextRoundTime := s.nextRoundTime()
-	log.Infof("genesis time %s, current round %d, now %s, next round time %s",
-		s.genesis.GenesisTime(), s.getCurrentRound(), time.Now(), nextRoundTime)
+	log.Infof("genesis time %s, current round %d, now %s, next round time %s, proposal threshold %.2f",
+		s.genesis.GenesisTime(), s.getCurrentRound(), time.Now(), nextRoundTime, s.cfg.ProposalThresholdPerc())
 
 	t := time.NewTicker(time.Until(nextRoundTime))
 	for {
@@ -148,7 +148,7 @@ func (s *Service) initRoundState() error {
 		if err != nil {
 			return err
 		}
-		log.Infof("genesis block saved to db: %s", genesisBlock)
+		log.Infof("genesis block saved to db: %s", genesisBlock.ToString())
 		s.genesisBlockHash = genesisBlock.Hash()
 		err = s.db.PutHeadBlock(s.genesisBlockHash)
 		if err != nil {
@@ -249,6 +249,8 @@ func (s *Service) proposeIfChosen() error {
 	// broadcast
 	s.outMsgs.Put(s.proposalKey(s.cfg.MyValidatorIndex()), msg)
 
+	log.Infof("proposed block %s", header.ToString())
+
 	return nil
 }
 
@@ -320,6 +322,8 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 }
 
 func (s *Service) prepare(blockHash []byte) error {
+	log.Infof("prepare: block %x", blockHash)
+
 	prep := &types.Prepare{BlockHash: blockHash}
 	cert, err := s.signNewCertificate(prep)
 	if err != nil {
@@ -338,6 +342,7 @@ func (s *Service) prepare(blockHash []byte) error {
 }
 
 func (s *Service) tentativeCommit(blockHash []byte) error {
+	log.Infof("tentativeCommit: block %x", blockHash)
 	// TODO check transactions before TC
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
@@ -365,7 +370,7 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 }
 
 func (s *Service) commit(blockHash []byte) error {
-	log.Infof("committing block %x", blockHash)
+	log.Infof("commit block %x", blockHash)
 
 	// TODO do commit stuff
 	err := s.db.PutHeadBlock(blockHash)

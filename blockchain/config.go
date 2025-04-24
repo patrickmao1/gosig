@@ -8,6 +8,7 @@ import (
 	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,13 @@ func (c *NodeConfig) RoundDuration() time.Duration {
 	return c.ProposalStageDuration() + c.AgreementStateDuration()
 }
 
+func (c *NodeConfig) ProposalThresholdPerc() float64 {
+	t := big.NewFloat(float64(c.ProposalThreshold))
+	t.Quo(t, big.NewFloat(float64(math.MaxUint32)))
+	ret, _ := t.Float64()
+	return ret
+}
+
 type NodeConfigs struct {
 	Configs []*NodeConfig `yaml:"configs"`
 }
@@ -122,7 +130,7 @@ func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 	cfg := NodeConfig{
 		DbPath:                   "/app/runtime/gosig.db",
 		ProposalThreshold:        computeThreshold(len(nodes)),
-		GossipIntervalMs:         200,
+		GossipIntervalMs:         500,
 		GossipDegree:             2,
 		ProposalStageDurationMs:  4000,
 		AgreementStateDurationMs: 8000,
