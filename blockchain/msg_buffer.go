@@ -14,8 +14,10 @@ type OutboundMsgBuffer struct {
 	myPrivkey  []byte
 	myValIndex uint32
 
-	msgs map[string]*types.Envelope
-	mu   sync.RWMutex
+	msgs      map[string]*types.Envelope
+	deleteDDL map[string]time.Time
+	relayDDL  map[string]time.Time
+	mu        sync.RWMutex
 }
 
 func NewOutboundMsgBuffer(myPrivKey []byte, myValIndex uint32) *OutboundMsgBuffer {
@@ -23,13 +25,23 @@ func NewOutboundMsgBuffer(myPrivKey []byte, myValIndex uint32) *OutboundMsgBuffe
 		myPrivkey:  myPrivKey,
 		myValIndex: myValIndex,
 		msgs:       make(map[string]*types.Envelope),
+		deleteDDL:  make(map[string]time.Time),
+		relayDDL:   make(map[string]time.Time),
 	}
 }
 
-func (b *OutboundMsgBuffer) Put(key string, msg *types.Message) {
+func (b *OutboundMsgBuffer) Put(key string, msg *types.Message, relayDDL time.Time, deleteDDL ...time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	b.msgs[key] = b.sign(msg)
+
+	if len(deleteDDL) > 0 {
+		b.deleteDDL[key] = deleteDDL[0]
+	} else {
+		b.deleteDDL[key] = relayDDL
+	}
+	b.relayDDL[key] = relayDDL
 }
 
 func (b *OutboundMsgBuffer) Get(key string) (*types.Message, bool) {
@@ -49,6 +61,8 @@ func (b *OutboundMsgBuffer) Tx(doInTx func(buf *OutboundMsgBuffer) error) error 
 		myPrivkey:  b.myPrivkey,
 		myValIndex: b.myValIndex,
 		msgs:       b.msgs,
+		deleteDDL:  b.deleteDDL,
+		relayDDL:   b.relayDDL,
 	}
 	return doInTx(tx)
 }
@@ -60,29 +74,19 @@ func (b *OutboundMsgBuffer) Has(key string) bool {
 	return ok
 }
 
-func (b *OutboundMsgBuffer) Delete(key string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.msgs, key)
-}
-
-func (b *OutboundMsgBuffer) BatchDelete(keys []string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for _, key := range keys {
-		delete(b.msgs, key)
-	}
-}
-
 func (b *OutboundMsgBuffer) List() []*types.Envelope {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var msgs []*types.Envelope
 	for id, msg := range b.msgs {
-		if msg.DDL().Before(time.Now()) {
+		now := time.Now()
+		if b.deleteDDL[id].Before(now) {
 			delete(b.msgs, id)
+			delete(b.deleteDDL, id)
 		} else {
-			msgs = append(msgs, msg)
+			if !b.relayDDL[id].Before(now) {
+				msgs = append(msgs, msg)
+			}
 		}
 	}
 	return msgs

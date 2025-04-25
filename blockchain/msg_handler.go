@@ -2,11 +2,12 @@ package blockchain
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	bls12381 "github.com/kilic/bls12-381"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	log "github.com/sirupsen/logrus"
+	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,6 +32,8 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 		err = s.handlePrepare(msg.GetPrepare())
 	case *types.Message_Tc:
 		err = s.handleTC(msg.GetTc())
+	case *types.Message_TxHashes:
+		err = s.handleTxHashes(msg.GetTxHashes())
 	default:
 		err = fmt.Errorf("handleMessage: unknown message type. msg %v", signedMsg)
 	}
@@ -40,7 +43,7 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 }
 
 func (s *Service) handleProposal(prop *types.BlockProposal) error {
-	log.Infof("handleProposal: block hash %x.., block %s", prop.BlockHeader.Hash()[:8], prop.ToString())
+	log.Debugf("handleProposal: block hash %x.., block %s", prop.BlockHeader.Hash()[:8], prop.ToString())
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 	if prop.Round != s.round.Load() {
@@ -49,8 +52,7 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 	}
 	if prop.BlockHeader.Height > s.head.Height+1 {
 		log.Warnf("received proposal block (%d) > head block + 1 (%d)", prop.BlockHeader.Height, s.head.Height+1)
-		go s.runCatchUpRoutine()
-		// We don't put back the proposal to queue because we expect to receive it again from gossip
+		return nil
 	}
 	// check proposal proof
 	if !s.isValidProposal(prop) {
@@ -58,28 +60,29 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 		return nil
 	}
 
-	s.proposals[prop.ProposerIndex] = prop
-
-	// relay the newly received proposal
-	msg := &types.Message{
-		Message:  &types.Message_Proposal{Proposal: prop},
-		Deadline: s.roundProposalEndTime().UnixMilli(),
+	if s.minProposal == nil || prop.Score() < s.minProposal.Score() {
+		s.minProposal = prop
 	}
-	s.outMsgs.Put(s.proposalKey(prop.ProposerIndex), msg)
+
+	// relay the known best proposal
+	msg := &types.Message{
+		Message: &types.Message_Proposal{Proposal: s.minProposal},
+	}
+	s.outMsgs.Put(s.proposalKey(), msg, s.proposalStageEndTime())
 	return nil
 }
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
-	log.Infof("handlePrepare %s", incPrep.ToString())
+	log.Debugf("handlePrepare %s", incPrep.ToString())
 	if incPrep.Cert.Round != s.round.Load() {
 		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incPrep.Cert.Round, s.round)
 		return nil
 	}
 
 	// Make sure the (partial) certificate is valid
-	err := s.verifyCertificate(incPrep.Msg, incPrep.GetCert())
-	if err != nil {
-		return fmt.Errorf("failed to handle prepare msg: %s", err.Error())
+	pass := s.checkCert(incPrep.Msg, incPrep.GetCert())
+	if !pass {
+		return fmt.Errorf("handlePrepare: failed to handle Prepare msg: invalid cert")
 	}
 
 	return s.outMsgs.Tx(func(buf *OutboundMsgBuffer) error {
@@ -108,18 +111,18 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			Cert: mergedCert,
 		}
 		mergedMsg.Message = &types.Message_Prepare{Prepare: mergedPrep}
-		buf.Put(s.prepareKey(), mergedMsg)
-		log.Infof("saved merged prepare %s", mergedMsg.ToString())
+		buf.Put(s.prepareKey(), mergedMsg, s.prepareGossipEndTime(), s.nextRoundTime())
+
+		log.Debugf("saved merged prepare %s", mergedMsg.ToString())
 
 		if mergedPrep.Cert.NumSigned() >= s.cfg.Quorum() {
-			log.Infof("handlePrepare: reached quorum %d/%d", mergedPrep.Cert.NumSigned(), s.cfg.Quorum())
+			log.Debugf("handlePrepare: reached quorum %d/%d", mergedPrep.Cert.NumSigned(), s.cfg.Quorum())
 			// persist the prepare cert because if this block is later TC'd by me but never committed, I'll need to
 			// re-propose this block with its P-cert as the proposal certificate.
 			err := s.db.PutPCert(mergedPrep.Msg.BlockHash, mergedPrep.Cert)
 			if err != nil {
 				return err
 			}
-			log.Infof("saved PrepareCert %s", mergedPrep.Cert.ToString())
 
 			// initiate a tc if I haven't yet
 			tcMsg, ok := buf.Get(s.tcKey())
@@ -129,17 +132,16 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			// msg, no need to sign it again. In the latter case, I need to add my TC signature.
 			if ok {
 				if tcMsg.GetTc().Cert.SigCounts[s.cfg.MyValidatorIndex()] == 0 {
-					log.Infof("tc msg already exists %s", tcMsg.ToString())
 					tcCert := tcMsg.GetTc()
-					err := s.addSigToCertificate(tcCert.Msg, tcCert.Cert)
+					err := s.addSigToCert(tcCert.Msg, tcCert.Cert)
 					if err != nil {
 						return err
 					}
-					buf.Put(s.tcKey(), tcMsg)
-					log.Infof("added my sig to tc msg %s", tcMsg.ToString())
+					buf.Put(s.tcKey(), tcMsg, s.nextRoundTime())
 				}
 			}
-			if !buf.Has(s.tcKey()) {
+			_, err = s.db.GetTcCert(mergedPrep.Msg.BlockHash)
+			if err != nil && errors.Is(err, leveldb.ErrNotFound) {
 				err := s.tentativeCommit(buf, mergedPrep.Msg.BlockHash)
 				if err != nil {
 					return err
@@ -151,17 +153,17 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 }
 
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
-	log.Infof("handleTC %s", incTc.ToString())
+	log.Debugf("handleTC %s", incTc.ToString())
 	// merge tc with my tc of this round
 	if incTc.Cert.Round != s.round.Load() {
-		log.Warnf("ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round)
+		log.Warnf("handleTC: ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round)
 		return nil
 	}
 
 	// Make sure the (partial) certificate is valid
-	err := s.verifyCertificate(incTc.Msg, incTc.GetCert())
-	if err != nil {
-		return fmt.Errorf("failed to handle TC msg: %s", err.Error())
+	pass := s.checkCert(incTc.Msg, incTc.GetCert())
+	if !pass {
+		return fmt.Errorf("handleTC: failed to handle TC msg: invalid cert")
 	}
 
 	return s.outMsgs.Tx(func(buf *OutboundMsgBuffer) error {
@@ -175,7 +177,7 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 		}
 		myPrep := myPrepMsg.GetPrepare()
 		if !bytes.Equal(myPrep.Msg.BlockHash, incTc.Msg.BlockHash) {
-			return fmt.Errorf("incTc block != my prepare block: %x != %x",
+			return fmt.Errorf("handleTC: incTc block != my prepare block: %x != %x",
 				incTc.Msg.BlockHash, myPrep.Msg.BlockHash)
 		}
 		myTc := &types.TentativeCommitCertificate{
@@ -186,14 +188,11 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 		if ok {
 			myTc = myTcMsg.GetTc()
 		} else {
-			myTcMsg = &types.Message{
-				Message:  nil,
-				Deadline: 0,
-			}
+			myTcMsg = &types.Message{}
 		}
 
 		if !bytes.Equal(myTc.Msg.BlockHash, incTc.Msg.BlockHash) {
-			return fmt.Errorf("got TC different from mine: theirs %+v, mine %+v", incTc, myTc)
+			return fmt.Errorf("handleTC: got TC different from mine: theirs %+v, mine %+v", incTc, myTc)
 		}
 
 		// Merge incoming tc with my tc of this round
@@ -207,69 +206,27 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 			Cert: mergedCert,
 		}
 		mergedMsg.Message = &types.Message_Tc{Tc: mergedTc}
-		buf.Put(s.tcKey(), mergedMsg)
+		buf.Put(s.tcKey(), mergedMsg, s.nextRoundTime())
 
 		if mergedTc.Cert.NumSigned() >= s.cfg.Quorum() {
-			return s.commit(buf, mergedTc.Msg.BlockHash)
+			return s.commit(mergedTc.Msg.BlockHash)
 		}
 		return nil
 	})
 }
 
-func isSigSuperSet(a, b []uint32) bool {
-	for i := range a {
-		if b[i] > 0 && a[i] < b[i] {
-			return false
-		}
-	}
-	return true
-}
+func (s *Service) handleTxHashes(txHashes *types.TransactionHashes) error {
+	s.rmu.RLock()
+	defer s.rmu.RUnlock()
 
-func mergeCerts(a, b *types.Certificate) (*types.Certificate, error) {
-	if a == nil && b == nil {
-		return nil, fmt.Errorf("mergeCerts: nil certs")
-	} else if a != nil && b == nil {
-		return a, nil
-	} else if a == nil {
-		return b, nil
-	}
-	if a.Round != b.Round {
-		return nil, fmt.Errorf("mergeCerts: round not equal: a %v, b %v", a, b)
+	expected := s.minProposal.BlockHeader.TxRoot
+	received := txHashes.Root()
+	if !bytes.Equal(received, expected) {
+		return fmt.Errorf("handleTxHashes: tx root mismatch: expected %x, got %x", expected, received)
 	}
 
-	// optimization: if one cert is a superset of another, we could just use the superset without merging
-	if isSigSuperSet(a.SigCounts, b.SigCounts) {
-		return a, nil
-	}
-	if isSigSuperSet(b.SigCounts, a.SigCounts) {
-		return b, nil
-	}
-
-	g2 := bls12381.NewG2()
-	aSig, err := g2.FromCompressed(a.AggSig)
-	if err != nil {
-		return nil, err
-	}
-	bSig, err := g2.FromCompressed(b.AggSig)
-	if err != nil {
-		return nil, err
-	}
-	sum := g2.Add(g2.New(), aSig, bSig)
-	aggSig := g2.ToCompressed(sum)
-
-	// sanity check. all nodes have hardcoded validator list. these should equal
-	if len(a.SigCounts) != len(b.SigCounts) {
-		log.Panic("mergeCerts: sigCounts len not the same")
-	}
-	retCounts := make([]uint32, len(a.SigCounts))
-	for i := range a.SigCounts {
-		retCounts[i] = a.SigCounts[i] + b.SigCounts[i]
-	}
-	return &types.Certificate{
-		AggSig:    aggSig,
-		SigCounts: retCounts,
-		Round:     a.Round,
-	}, nil
+	blockHash := s.minProposal.BlockHeader.Hash()
+	return s.db.PutTxHashes(blockHash, txHashes)
 }
 
 func (s *Service) isValidProposal(prop *types.BlockProposal) bool {
@@ -305,28 +262,11 @@ func (s *Service) isValidProposal(prop *types.BlockProposal) bool {
 	}
 	// Assuming it's a newly proposed block (not a previously tc'd block)
 	// The cert is the TC cert of the previous block
-	pass := s.checkCert(block.ParentHash, prop.Cert)
+	tc := &types.TentativeCommit{BlockHash: block.ParentHash}
+	pass := s.checkCert(tc, prop.Cert)
 	if !pass {
 		log.Errorf("proposal %s: invalid cert sig", prop.ToString())
 		return false
 	}
 	return true
-}
-
-func (s *Service) checkSig(signedMsg *types.Envelope) (bool, error) {
-	pubKey := s.cfg.Validators[signedMsg.ValidatorIndex].GetPubKey()
-	msgBytes, err := proto.Marshal(signedMsg.Msg)
-	if err != nil {
-		return false, err
-	}
-	return crypto.VerifySigBytes(pubKey, msgBytes, signedMsg.Sig), nil
-}
-
-func (s *Service) checkCert(data []byte, cert *types.Certificate) bool {
-	return crypto.VerifyAggSigBytes(
-		s.cfg.Validators.PubKeys(),
-		cert.SigCounts,
-		data,
-		cert.AggSig,
-	)
 }

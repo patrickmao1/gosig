@@ -6,7 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/blake2b"
 	"google.golang.org/protobuf/proto"
-	"time"
+	"slices"
 )
 
 func (tx *Transaction) Hash() []byte {
@@ -16,6 +16,14 @@ func (tx *Transaction) Hash() []byte {
 	}
 	hash := blake2b.Sum256(bs)
 	return hash[:]
+}
+
+func (txs *TransactionHashes) Root() []byte {
+	if txs == nil {
+		return nil
+	}
+	root := blake2b.Sum256(slices.Concat(txs.TxHashes...))
+	return root[:]
 }
 
 func (h *BlockHeader) Hash() []byte {
@@ -33,10 +41,6 @@ func (h *BlockHeader) ToString() string {
 	}
 	return fmt.Sprintf("BlockHeader(Height %d, ParentHash %x.., ProposerProof %x.., TxRoot %x..)",
 		h.Height, h.ParentHash[:8], h.ProposerProof[:8], h.TxRoot[:8])
-}
-
-func (m *Envelope) DDL() time.Time {
-	return time.UnixMilli(m.Msg.Deadline)
 }
 
 // NumSigned returns the number of validators who has provided a sig

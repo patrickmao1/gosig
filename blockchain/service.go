@@ -10,7 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/blake2b"
-	"google.golang.org/protobuf/proto"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -32,11 +31,11 @@ type Service struct {
 	genesisBlockHash []byte
 
 	// current round states
-	rmu       sync.RWMutex
-	round     *atomic.Uint32
-	rseed     []byte                          // round concatenated with seed
-	proposals map[uint32]*types.BlockProposal // key is val index
-	head      *types.BlockHeader
+	rmu         sync.RWMutex
+	round       *atomic.Uint32
+	rseed       []byte // round concatenated with seed
+	minProposal *types.BlockProposal
+	head        *types.BlockHeader
 
 	// gossip messages
 	outMsgs *OutboundMsgBuffer
@@ -66,7 +65,6 @@ func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool)
 		nw:             nw,
 		outMsgs:        outbound,
 		inMsgs:         inbound,
-		proposals:      make(map[uint32]*types.BlockProposal),
 		round:          new(atomic.Uint32),
 		catchUpRunning: new(atomic.Bool),
 	}
@@ -98,7 +96,7 @@ func (s *Service) Start() {
 		}
 
 		// check if I'm a proposer and propose
-		err = s.proposeIfChosen()
+		txs, err := s.proposeIfChosen()
 		if err != nil {
 			log.Errorln(err)
 			// we don't continue the loop here as we still want to participate the next stage
@@ -114,23 +112,22 @@ func (s *Service) Start() {
 		 * Stage 2: BFT agreement
 		 */
 
-		decidedBlock, err := s.decideBlock()
-		if err != nil {
-			log.Errorln("cannot decide block", err)
+		if s.minProposal == nil {
 			continue
 		}
-
-		if decidedBlock != nil {
-			err := s.db.PutBlockHeader(decidedBlock)
-			if err != nil {
-				log.Errorln("failed to put decided block", err)
-				continue
-			}
-			err = s.prepare(decidedBlock.Hash())
-			if err != nil {
-				log.Errorln("failed to prepare", err)
-				continue
-			}
+		err = s.db.PutBlock(s.minProposal.BlockHeader)
+		if err != nil {
+			log.Errorln("failed to put decided block", err)
+			continue
+		}
+		err = s.prepare(s.minProposal.BlockHeader.Hash())
+		if err != nil {
+			log.Errorln("failed to prepare", err)
+			continue
+		}
+		// I won. I should send out the transaction hashes (body of the block)
+		if s.minProposal.ProposerIndex == s.cfg.MyValidatorIndex() {
+			s.broadcastTxHashes(txs)
 		}
 	}
 }
@@ -139,12 +136,11 @@ func (s *Service) initRoundState() error {
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 
-	s.proposals = make(map[uint32]*types.BlockProposal)
 	head, err := s.db.GetHeadBlock()
 	if err != nil && errors.Is(err, leveldb.ErrNotFound) {
 		log.Infof("no head block found, performing genesis")
 		genesisBlock := NewGenesisBlock(s.genesis.InitialSeed)
-		err := s.db.PutBlockHeader(genesisBlock)
+		err := s.db.PutBlock(genesisBlock)
 		if err != nil {
 			return err
 		}
@@ -158,8 +154,10 @@ func (s *Service) initRoundState() error {
 	} else if err != nil {
 		return err
 	}
+
 	s.round.Store(s.getCurrentRound())
 	s.head = head
+	s.minProposal = nil
 
 	// compute the seed for the round
 	seed := blake2b.Sum256(head.ProposerProof)
@@ -172,11 +170,11 @@ func (s *Service) initRoundState() error {
 	return nil
 }
 
-func (s *Service) proposeIfChosen() error {
+func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
 	txs := s.txPool.Dump()
 	if len(txs) == 0 {
 		log.Infof("skip proposing: no tx in pool")
-		return nil
+		return nil, nil
 	}
 
 	// determine if I should propose
@@ -184,7 +182,7 @@ func (s *Service) proposeIfChosen() error {
 	log.WithField("round", s.round.Load()).
 		Debugf("my proposer score %d, threshold %d", proposalScore, s.cfg.ProposalThreshold)
 	if proposalScore >= s.cfg.ProposalThreshold {
-		return nil
+		return nil, nil
 	}
 	log.WithField("round", s.round.Load()).Infof("I am a proposer!")
 	log.Debugf("RNG info: pubkey %x.., rseed %x, proof %x..",
@@ -206,7 +204,7 @@ func (s *Service) proposeIfChosen() error {
 	if !bytes.Equal(s.genesisBlockHash, headHash) {
 		headTcCert, err := s.db.GetTcCert(headHash)
 		if err != nil {
-			return fmt.Errorf("failed to GetTcCert for head block %x: %s", headHash, err.Error())
+			return nil, fmt.Errorf("failed to GetTcCert for head block %x: %s", headHash, err.Error())
 		}
 		cert = headTcCert
 	}
@@ -219,47 +217,22 @@ func (s *Service) proposeIfChosen() error {
 		ProposerIndex: s.cfg.MyValidatorIndex(),
 	}
 	msg := &types.Message{
-		Message:  &types.Message_Proposal{Proposal: proposal},
-		Deadline: s.roundProposalEndTime().UnixMilli(),
+		Message: &types.Message_Proposal{Proposal: proposal},
 	}
 
 	// broadcast
-	s.outMsgs.Put(s.proposalKey(s.cfg.MyValidatorIndex()), msg)
+	s.outMsgs.Put(s.proposalKey(), msg, s.proposalStageEndTime())
 
 	log.Infof("proposed block %s", header.ToString())
 
-	return nil
-}
-
-func (s *Service) decideBlock() (*types.BlockHeader, error) {
-	s.rmu.RLock()
-	defer s.rmu.RUnlock()
-
-	// no proposals received, leaving the round empty
-	if len(s.proposals) == 0 {
-		log.Infof("decideBlock: no block proposals for round %d", s.round.Load())
-		return nil, nil
-	}
-
-	log.WithField("round", s.round.Load()).
-		Infof("decide block: num proposals: %d", len(s.proposals))
-
-	// find the proposal with the lowest score
-	var minProposal *types.BlockProposal
-	for _, proposal := range s.proposals {
-		if minProposal == nil || proposal.Score() < minProposal.Score() {
-			minProposal = proposal
-		}
-	}
-
-	return minProposal.BlockHeader, nil
+	return txs, nil
 }
 
 func (s *Service) prepare(blockHash []byte) error {
 	log.Infof("prepare: block %x", blockHash)
 
 	prep := &types.Prepare{BlockHash: blockHash}
-	cert, err := s.signNewCertificate(prep)
+	cert, err := s.signNewCert(prep)
 	if err != nil {
 		return err
 	}
@@ -267,20 +240,25 @@ func (s *Service) prepare(blockHash []byte) error {
 		Msg:  prep,
 		Cert: cert,
 	}
-	signedMsg := &types.Message{
-		Message:  &types.Message_Prepare{Prepare: prepCert},
-		Deadline: s.nextRoundTime().UnixMilli(),
+	msg := &types.Message{
+		Message: &types.Message_Prepare{Prepare: prepCert},
 	}
-	s.outMsgs.Put(s.prepareKey(), signedMsg)
+	s.outMsgs.Put(s.prepareKey(), msg, s.prepareGossipEndTime(), s.nextRoundTime())
 	return nil
 }
 
 func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
 	log.Infof("tentativeCommit: block %x", blockHash)
 	// TODO check transactions before TC
+	//txs, root, err := s.db.GetBlockTxs(blockHash)
+	//if err != nil {
+	//	return err
+	//}
+	//if len(txs) == 0 {
+	//}
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
-	cert, err := s.signNewCertificate(tc)
+	cert, err := s.signNewCert(tc)
 	if err != nil {
 		return err
 	}
@@ -289,92 +267,65 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 		Cert: cert,
 	}
 	signedMsg := &types.Message{
-		Message:  &types.Message_Tc{Tc: tcWithCert},
-		Deadline: s.nextRoundTime().UnixMilli(),
+		Message: &types.Message_Tc{Tc: tcWithCert},
 	}
-	outMsgs.Put(s.tcKey(), signedMsg)
-	log.Infof("saved tentativeCommit: block %x", blockHash)
+	outMsgs.Put(s.tcKey(), signedMsg, s.nextRoundTime())
 
-	err = s.db.PutTcCert(blockHash, cert)
-	if err != nil {
-		return err
-	}
-	// We also need to persist our state of what I have TC'd so that later if this block isn't
-	// committed we can know its block hash. This state is cleared upon commit of this block.
-	return s.db.Put(tcBlockKey, blockHash, nil)
+	return s.db.PutTcCert(blockHash, cert)
 }
 
-func (s *Service) commit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
-	log.Infof("commit block %x", blockHash)
+func (s *Service) commit(blockHash []byte) error {
+	s.rmu.Lock()
+	defer s.rmu.Unlock()
 
-	// TODO do commit stuff
-	err := s.db.PutHeadBlock(blockHash)
+	head, err := s.db.Get(headKey, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("commit: failed to get head block: %s", err.Error())
 	}
-
-	return s.db.Delete(tcBlockKey, nil)
-}
-
-func (s *Service) signNewCertificate(msg proto.Message) (*types.Certificate, error) {
-	bs, err := proto.Marshal(msg)
-	if err != nil {
-		return nil, err
-	}
-	sig := crypto.SignBytes(s.cfg.privKey, bs)
-	sigCounts := make([]uint32, len(s.cfg.Validators))
-	sigCounts[s.cfg.MyValidatorIndex()] = 1
-	return &types.Certificate{
-		AggSig:    sig,
-		SigCounts: sigCounts,
-		Round:     s.round.Load(),
-	}, nil
-}
-
-func (s *Service) addSigToCertificate(msg proto.Message, cert *types.Certificate) error {
-	if cert.SigCounts[s.cfg.MyValidatorIndex()] > 0 {
+	if bytes.Equal(head, blockHash) {
 		return nil
 	}
-	bs, err := proto.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	sig := crypto.SignBytes(s.cfg.MyPrivKey(), bs)
-	cert.SigCounts[s.cfg.MyValidatorIndex()] += 1
-	cert.AggSig = crypto.AggSigsBytes([][]byte{cert.AggSig, sig})
-	return nil
-}
+	log.Infof("commit block %x", blockHash)
 
-func (s *Service) verifyCertificate(msg proto.Message, cert *types.Certificate) error {
-	bs, err := proto.Marshal(msg)
+	// TODO fetch transactions and execute
+	//txs, root, err := s.db.GetBlockTxs(blockHash)
+	//if err != nil {
+	//	return fmt.Errorf("commit: failed to get block %s.. txs: %s", blockHash[:8], err.Error())
+	//}
+	//for _, tx := range txs {
+	//
+	//}
+
+	err = s.db.PutHeadBlock(blockHash)
 	if err != nil {
 		return err
-	}
-	pass := crypto.VerifyAggSigBytes(s.cfg.Validators.PubKeys(), cert.SigCounts, bs, cert.AggSig)
-	if !pass {
-		return fmt.Errorf("invalid cert: %+v %+v", msg, cert)
 	}
 	return nil
 }
 
-func (s *Service) runCatchUpRoutine() {
-	if s.catchUpRunning.Load() {
-		return
+func (s *Service) broadcastTxHashes(txs []*types.SignedTransaction) {
+	hashes := make([][]byte, len(txs))
+	for i, tx := range txs {
+		hashes[i] = tx.Tx.Hash()
 	}
-	s.catchUpRunning.Store(true)
-	log.Infof("running catch up routine")
-
-	// TODO
-
-	s.catchUpRunning.Store(false)
+	txHashes := &types.TransactionHashes{TxHashes: hashes}
+	log.Infof("broadcastTxHashes: txs %d, root %x", len(txs), txHashes.Root())
+	msg := &types.Message{
+		Message: &types.Message_TxHashes{TxHashes: txHashes},
+	}
+	s.outMsgs.Put(s.txHashesKey(), msg, s.prepareGossipEndTime())
 }
 
 func (s *Service) getCurrentRound() uint32 {
 	return uint32(time.Since(s.genesis.GenesisTime()) / s.cfg.RoundDuration())
 }
 
-func (s *Service) roundProposalEndTime() time.Time {
-	return s.nextRoundTime().Add(-s.cfg.AgreementStateDuration())
+func (s *Service) proposalStageEndTime() time.Time {
+	return s.nextRoundTime().Add(-s.cfg.AgreementStageDuration())
+}
+
+func (s *Service) prepareGossipEndTime() time.Time {
+	return s.proposalStageEndTime().Add(s.cfg.GossipDuration())
 }
 
 func (s *Service) nextRoundTime() time.Time {
@@ -392,8 +343,9 @@ func computeTxRoot(signedTxs []*types.SignedTransaction) []byte {
 	return root[:]
 }
 
-func (s *Service) proposalKey(vi uint32) string {
-	return fmt.Sprintf("proposal-%d-%d", s.round.Load(), vi)
+func (s *Service) proposalKey() string {
+	return fmt.Sprintf("proposal-%d", s.round.Load())
 }
-func (s *Service) prepareKey() string { return fmt.Sprintf("prepare-%d", s.round.Load()) }
-func (s *Service) tcKey() string      { return fmt.Sprintf("tc-%d", s.round.Load()) }
+func (s *Service) prepareKey() string  { return fmt.Sprintf("prepare-%d", s.round.Load()) }
+func (s *Service) tcKey() string       { return fmt.Sprintf("tc-%d", s.round.Load()) }
+func (s *Service) txHashesKey() string { return fmt.Sprintf("txHashes-%d", s.round.Load()) }

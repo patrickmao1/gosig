@@ -49,14 +49,18 @@ func (vs Validators) PubKeys() [][]byte {
 }
 
 type NodeConfig struct {
-	DbPath                   string     `yaml:"db_path"`
-	PrivKeyHex               string     `yaml:"priv_key_hex"`
-	ProposalThreshold        uint32     `yaml:"proposal_threshold"`
-	GossipIntervalMs         int        `yaml:"gossip_interval"`
-	GossipDegree             int        `yaml:"gossip_degree"`
-	ProposalStageDurationMs  int64      `yaml:"proposal_stage_duration_ms"`
-	AgreementStateDurationMs int64      `yaml:"agreement_state_duration_ms"`
-	Validators               Validators `yaml:"validators"`
+	DbPath            string `yaml:"db_path"`
+	PrivKeyHex        string `yaml:"priv_key_hex"`
+	ProposalThreshold uint32 `yaml:"proposal_threshold"`
+
+	GossipIntervalMs int   `yaml:"gossip_interval"`
+	GossipDegree     int   `yaml:"gossip_degree"`
+	GossipDurationMs int64 `yaml:"tx_hash_gossip_duration_ms"`
+
+	ProposalStageDurationMs  int64 `yaml:"proposal_stage_duration_ms"`
+	AgreementStateDurationMs int64 `yaml:"agreement_state_duration_ms"`
+
+	Validators Validators `yaml:"validators"`
 
 	// cached values
 	privKey []byte
@@ -107,12 +111,16 @@ func (c *NodeConfig) ProposalStageDuration() time.Duration {
 	return time.Duration(c.ProposalStageDurationMs) * time.Millisecond
 }
 
-func (c *NodeConfig) AgreementStateDuration() time.Duration {
+func (c *NodeConfig) AgreementStageDuration() time.Duration {
 	return time.Duration(c.AgreementStateDurationMs) * time.Millisecond
 }
 
 func (c *NodeConfig) RoundDuration() time.Duration {
-	return c.ProposalStageDuration() + c.AgreementStateDuration()
+	return c.ProposalStageDuration() + c.AgreementStageDuration()
+}
+
+func (c *NodeConfig) GossipDuration() time.Duration {
+	return time.Duration(c.GossipDurationMs) * time.Millisecond
 }
 
 func (c *NodeConfig) ProposalThresholdPerc() float64 {
@@ -128,10 +136,12 @@ type NodeConfigs struct {
 
 func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 	cfg := NodeConfig{
-		DbPath:                   "/app/runtime/gosig.db",
-		ProposalThreshold:        computeThreshold(len(nodes)),
-		GossipIntervalMs:         500,
-		GossipDegree:             2,
+		DbPath:            "/app/runtime/gosig.db",
+		ProposalThreshold: computeThreshold(len(nodes)),
+		GossipIntervalMs:  300,
+		GossipDegree:      2,
+		GossipDurationMs:  4000,
+
 		ProposalStageDurationMs:  4000,
 		AgreementStateDurationMs: 8000,
 	}

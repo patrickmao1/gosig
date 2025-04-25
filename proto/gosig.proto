@@ -19,7 +19,6 @@ message SignedTransaction {
 
 message TransactionHashes {
   repeated bytes tx_hashes = 1;
-  bytes root = 2; // root = hash(tx_hashes), for convenience
 }
 
 message SignedTransactions { repeated SignedTransaction txs = 1; }
@@ -46,8 +45,8 @@ message Message {
     BlockProposal proposal = 2;
     PrepareCertificate prepare = 3;
     TentativeCommitCertificate tc = 4;
+    TransactionHashes tx_hashes = 5;
   }
-  int64 deadline = 5; // deadline after which the message will no longer be relayed
 }
 
 message Envelopes {

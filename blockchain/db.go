@@ -7,14 +7,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-var tcBlockKey = []byte("tc_block")
 var headKey = []byte("head_block")
 
 func blockHeaderKey(blockHash []byte) []byte {
 	return []byte(fmt.Sprintf("block/%x/header", blockHash))
 }
 
-func blockTxsKey(blockHash []byte) []byte {
+func txHashesKey(blockHash []byte) []byte {
 	return []byte(fmt.Sprintf("block/%x/txs", blockHash))
 }
 
@@ -38,22 +37,12 @@ func NewDB(db *leveldb.DB) *DB {
 	return &DB{DB: db}
 }
 
-func (db *DB) GetBlockHeader(blockHash []byte) (*types.BlockHeader, error) {
-	bytes, err := db.Get(blockHeaderKey(blockHash), nil)
-	if err != nil {
-		return nil, err
-	}
-	header := &types.BlockHeader{}
-	err = proto.Unmarshal(bytes, header)
-	return header, err
+func (db *DB) PutBlock(blockHeader *types.BlockHeader) error {
+	return db.put(blockHeaderKey(blockHeader.Hash()), blockHeader)
 }
 
-func (db *DB) PutBlockHeader(blockHeader *types.BlockHeader) error {
-	bs, err := proto.Marshal(blockHeader)
-	if err != nil {
-		return err
-	}
-	return db.Put(blockHeaderKey(blockHeader.Hash()), bs, nil)
+func (db *DB) GetBlock(blockHash []byte) (*types.BlockHeader, error) {
+	return get[types.BlockHeader](db, blockHeaderKey(blockHash))
 }
 
 func (db *DB) PutHeadBlock(blockHash []byte) error {
@@ -65,7 +54,7 @@ func (db *DB) GetHeadBlock() (*types.BlockHeader, error) {
 	if err != nil {
 		return nil, err
 	}
-	head, err := db.GetBlockHeader(headHash)
+	head, err := db.GetBlock(headHash)
 	if err != nil {
 		return nil, err
 	}
@@ -73,53 +62,31 @@ func (db *DB) GetHeadBlock() (*types.BlockHeader, error) {
 }
 
 func (db *DB) PutPCert(blockHash []byte, cert *types.Certificate) error {
-	bs, err := proto.Marshal(cert)
-	if err != nil {
-		return err
-	}
-	return db.Put(blockPCertKey(blockHash), bs, nil)
+	return db.put(blockPCertKey(blockHash), cert)
 }
 
 func (db *DB) GetPCert(blockHash []byte) (*types.Certificate, error) {
-	bytes, err := db.Get(blockPCertKey(blockHash), nil)
-	if err != nil {
-		return nil, err
-	}
-	cert := &types.Certificate{}
-	err = proto.Unmarshal(bytes, cert)
-	return cert, err
+	return get[types.Certificate](db, blockPCertKey(blockHash))
 }
 
 func (db *DB) PutTcCert(blockHash []byte, cert *types.Certificate) error {
-	bs, err := proto.Marshal(cert)
-	if err != nil {
-		return err
-	}
-	return db.Put(blockTcCertKey(blockHash), bs, nil)
+	return db.put(blockTcCertKey(blockHash), cert)
 }
 
 func (db *DB) GetTcCert(blockHash []byte) (*types.Certificate, error) {
-	bytes, err := db.Get(blockTcCertKey(blockHash), nil)
-	if err != nil {
-		return nil, err
-	}
-	cert := &types.Certificate{}
-	err = proto.Unmarshal(bytes, cert)
-	return cert, err
+	return get[types.Certificate](db, blockTcCertKey(blockHash))
 }
 
-func (db *DB) GetBlockTxHashes(blockHash []byte) (*types.TransactionHashes, error) {
-	bs, err := db.Get(blockTxsKey(blockHash), nil)
-	if err != nil {
-		return nil, err
-	}
-	tc := &types.TransactionHashes{}
-	err = proto.Unmarshal(bs, tc)
-	return tc, err
+func (db *DB) PutTxHashes(blockHash []byte, txHashes *types.TransactionHashes) error {
+	return db.put(txHashesKey(blockHash), txHashes)
+}
+
+func (db *DB) GetTxHashes(blockHash []byte) (*types.TransactionHashes, error) {
+	return get[types.TransactionHashes](db, txHashesKey(blockHash))
 }
 
 func (db *DB) GetBlockTxs(blockHash []byte) (txs []*types.SignedTransaction, root []byte, err error) {
-	txHashes, err := db.GetBlockTxHashes(blockHash)
+	txHashes, err := db.GetTxHashes(blockHash)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -135,5 +102,29 @@ func (db *DB) GetBlockTxs(blockHash []byte) (txs []*types.SignedTransaction, roo
 		}
 		txs = append(txs, tx)
 	}
-	return txs, txHashes.Root, nil
+	return txs, txHashes.Root(), nil
+}
+
+func (db *DB) put(key []byte, value proto.Message) error {
+	bs, err := proto.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return db.Put(key, bs, nil)
+}
+
+type ProtoMessagePtr[T any] interface {
+	proto.Message
+	*T
+}
+
+func get[T any, PT ProtoMessagePtr[T]](db *DB, key []byte) (*T, error) {
+	t := new(T)
+	pt := PT(t)
+	bytes, err := db.Get(key, nil)
+	if err != nil {
+		return t, err
+	}
+	err = proto.Unmarshal(bytes, pt)
+	return t, err
 }

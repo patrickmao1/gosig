@@ -2,8 +2,9 @@ configs:
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 62c2d527f5123ac76e5690894ae3687fdbb7e4d8cd6b2d4484ad41eb2965ef1a
       proposal_threshold: 2585109953
-      gossip_interval: 200
+      gossip_interval: 300
       gossip_degree: 2
+      tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 4000
       agreement_state_duration_ms: 8000
       validators:
@@ -25,8 +26,9 @@ configs:
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 37474be32690a9e881b1c7e2606e9cc80733f997a8e99771a0d2a592229aa664
       proposal_threshold: 2585109953
-      gossip_interval: 200
+      gossip_interval: 300
       gossip_degree: 2
+      tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 4000
       agreement_state_duration_ms: 8000
       validators:
@@ -48,8 +50,9 @@ configs:
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 159050fbf0392f07dd96c0322706d4e22fce75eb6d8606a5d6f36cb08c4e85a6
       proposal_threshold: 2585109953
-      gossip_interval: 200
+      gossip_interval: 300
       gossip_degree: 2
+      tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 4000
       agreement_state_duration_ms: 8000
       validators:
@@ -71,8 +74,9 @@ configs:
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 7211b6b962c0ec28d0f9198cab950d4cb6548ad4f8b0f43af4512d2a8562ad80
       proposal_threshold: 2585109953
-      gossip_interval: 200
+      gossip_interval: 300
       gossip_degree: 2
+      tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 4000
       agreement_state_duration_ms: 8000
       validators:
@@ -94,8 +98,9 @@ configs:
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 48d27bdf2f3b8250ccea73ad13cd41a6a2869c317aadf299cb76c73dff96241d
       proposal_threshold: 2585109953
-      gossip_interval: 200
+      gossip_interval: 300
       gossip_degree: 2
+      tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 4000
       agreement_state_duration_ms: 8000
       validators:
