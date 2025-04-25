@@ -108,22 +108,6 @@ func (db *DB) GetTcCert(blockHash []byte) (*types.Certificate, error) {
 	return cert, err
 }
 
-func (db *DB) GetTcState() (tcBlock *types.BlockHeader, pCert *types.Certificate, err error) {
-	blockHash, err := db.Get(tcBlockKey, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	h, err := db.GetBlockHeader(blockHash)
-	if err != nil {
-		return nil, nil, err
-	}
-	pCert, err = db.GetPCert(blockHash)
-	if err != nil {
-		return nil, nil, err
-	}
-	return h, pCert, err
-}
-
 func (db *DB) GetBlockTxHashes(blockHash []byte) (*types.TransactionHashes, error) {
 	bs, err := db.Get(blockTxsKey(blockHash), nil)
 	if err != nil {

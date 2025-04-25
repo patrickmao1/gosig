@@ -71,13 +71,10 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 	log.Infof("handlePrepare %s", incPrep.ToString())
-	s.rmu.RLock()
 	if incPrep.Cert.Round != s.round.Load() {
-		s.rmu.RUnlock()
 		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incPrep.Cert.Round, s.round)
 		return nil
 	}
-	s.rmu.RUnlock()
 
 	// Make sure the (partial) certificate is valid
 	err := s.verifyCertificate(incPrep.Msg, incPrep.GetCert())
@@ -115,7 +112,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 		log.Infof("saved merged prepare %s", mergedMsg.ToString())
 
 		if mergedPrep.Cert.NumSigned() >= s.cfg.Quorum() {
-			log.Infof("handlePrepare: reached quorum %d", mergedPrep.Cert.NumSigned())
+			log.Infof("handlePrepare: reached quorum %d/%d", mergedPrep.Cert.NumSigned(), s.cfg.Quorum())
 			// persist the prepare cert because if this block is later TC'd by me but never committed, I'll need to
 			// re-propose this block with its P-cert as the proposal certificate.
 			err := s.db.PutPCert(mergedPrep.Msg.BlockHash, mergedPrep.Cert)
@@ -132,12 +129,18 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 			// msg, no need to sign it again. In the latter case, I need to add my TC signature.
 			if ok {
 				if tcMsg.GetTc().Cert.SigCounts[s.cfg.MyValidatorIndex()] == 0 {
-					// TODO
-					log.Fatal("TODO implement me")
+					log.Infof("tc msg already exists %s", tcMsg.ToString())
+					tcCert := tcMsg.GetTc()
+					err := s.addSigToCertificate(tcCert.Msg, tcCert.Cert)
+					if err != nil {
+						return err
+					}
+					buf.Put(s.tcKey(), tcMsg)
+					log.Infof("added my sig to tc msg %s", tcMsg.ToString())
 				}
 			}
 			if !buf.Has(s.tcKey()) {
-				err := s.tentativeCommit(mergedPrep.Msg.BlockHash)
+				err := s.tentativeCommit(buf, mergedPrep.Msg.BlockHash)
 				if err != nil {
 					return err
 				}
@@ -150,13 +153,10 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 	log.Infof("handleTC %s", incTc.ToString())
 	// merge tc with my tc of this round
-	s.rmu.RLock()
 	if incTc.Cert.Round != s.round.Load() {
-		s.rmu.RUnlock()
 		log.Warnf("ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round)
 		return nil
 	}
-	s.rmu.RUnlock()
 
 	// Make sure the (partial) certificate is valid
 	err := s.verifyCertificate(incTc.Msg, incTc.GetCert())
@@ -210,7 +210,7 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 		buf.Put(s.tcKey(), mergedMsg)
 
 		if mergedTc.Cert.NumSigned() >= s.cfg.Quorum() {
-			return s.commit(mergedTc.Msg.BlockHash)
+			return s.commit(buf, mergedTc.Msg.BlockHash)
 		}
 		return nil
 	})
@@ -301,24 +301,16 @@ func (s *Service) isValidProposal(prop *types.BlockProposal) bool {
 	block := prop.BlockHeader
 	// if the previous block is the genesis block then it doesn't have a proposal cert
 	if bytes.Equal(block.ParentHash, s.genesisBlockHash) {
-		log.Infof("skip validating proposal cert because parent is genesis block")
 		return true
 	}
 	// Assuming it's a newly proposed block (not a previously tc'd block)
 	// The cert is the TC cert of the previous block
 	pass := s.checkCert(block.ParentHash, prop.Cert)
-	if pass {
-		return true
-	}
-	// Assuming it's a previously TC'd block
-	// The cert is the P-cert of the TC'd block
-	prep := &types.Prepare{BlockHash: block.Hash()}
-	bs, err := proto.Marshal(prep)
-	if err != nil {
-		log.Errorf("proposal %s: invalid cert", prop)
+	if !pass {
+		log.Errorf("proposal %s: invalid cert sig", prop.ToString())
 		return false
 	}
-	return s.checkCert(bs, prop.Cert)
+	return true
 }
 
 func (s *Service) checkSig(signedMsg *types.Envelope) (bool, error) {

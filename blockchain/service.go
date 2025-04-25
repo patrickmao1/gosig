@@ -173,6 +173,12 @@ func (s *Service) initRoundState() error {
 }
 
 func (s *Service) proposeIfChosen() error {
+	txs := s.txPool.Dump()
+	if len(txs) == 0 {
+		log.Infof("skip proposing: no tx in pool")
+		return nil
+	}
+
 	// determine if I should propose
 	proposalScore, proposerProof := crypto.VRF(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^h}(r^h,Q^{h-1})
 	log.WithField("round", s.round.Load()).
@@ -191,47 +197,18 @@ func (s *Service) proposeIfChosen() error {
 		ParentHash:    headHash,
 		ProposerProof: proposerProof,
 	}
-	tcBlock, pCert, err := s.db.GetTcState()
-	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
-		return fmt.Errorf("leveldb error: %s", err.Error())
-	}
 
-	var txs []*types.SignedTransaction
 	var cert *types.Certificate
+	header.TxRoot = computeTxRoot(txs)
+	log.Infof("proposing a new block with %d txs, txRoot %x", len(txs), header.TxRoot)
 
-	if errors.Is(err, leveldb.ErrNotFound) {
-		txs = s.txPool.Dump()
-		if len(txs) == 0 {
-			log.Infof("skip proposing: no tx in pool")
-			return nil
-		}
-
-		header.TxRoot = computeTxRoot(txs)
-		log.Infof("proposing a new block with %d txs, txRoot %x", len(txs), header.TxRoot)
-
-		if !bytes.Equal(s.genesisBlockHash, headHash) {
-			// skip this if I'm still in genesis mode because the genesis block does not have a tc cert
-			headTcCert, err := s.db.GetTcCert(headHash)
-			if err != nil {
-				return fmt.Errorf("failed to GetTcCert for head block %x: %s", headHash, err.Error())
-			}
-			cert = headTcCert
-		}
-	} else { // TC block found.
-		log.Infof("tc block found, proposing tc block %s", tcBlock.Hash())
-		// Sanity check. If these aren't the same then I wouldn't have TC'd that block
-		if !bytes.Equal(tcBlock.ParentHash, s.head.Hash()) {
-			log.Panicf("inconsistent parent hashes! tcBlock %v, headBlock %v", tcBlock, s.head)
-		}
-		// I have previously TC'd a block, but I never committed it. Re-propose the block.
-		txs, header.TxRoot, err = s.db.GetBlockTxs(tcBlock.Hash())
+	// If I'm still in genesis mode then cert is nil because the genesis block does not have a tc cert
+	if !bytes.Equal(s.genesisBlockHash, headHash) {
+		headTcCert, err := s.db.GetTcCert(headHash)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to GetTcCert for head block %x: %s", headHash, err.Error())
 		}
-		cert = pCert
-	}
-	if len(txs) == 0 {
-		return nil
+		cert = headTcCert
 	}
 
 	// build & sign proposal
@@ -275,49 +252,6 @@ func (s *Service) decideBlock() (*types.BlockHeader, error) {
 		}
 	}
 
-	tcBlock, pCert, err := s.db.GetTcState()
-	if err != nil && !errors.Is(err, leveldb.ErrNotFound) {
-		return nil, err
-	}
-	// if I have no TC'd block, then I can safely use the best proposal I see
-	if errors.Is(err, leveldb.ErrNotFound) {
-		return minProposal.BlockHeader, nil
-	}
-
-	// if I do have a TC'd block...
-
-	// the incoming proposal's cert is either the prior block's TC cert, or a prepare cert of a
-	// block TC'd by the proposer in the previous round. If the new proposal has a cert round >
-	// my tc_round, then it implies that their view of the blockchain is newer than mine. Thus,
-	// I can just use their proposal
-	if minProposal.Cert.Round > pCert.Round {
-		return minProposal.BlockHeader, nil
-	}
-
-	// if I do have a TC'd block and if no block has a higher rounded cert than my TC'd block, then
-	// either the proposers are lagging or they also want to re-propose the block I TC'd. I need to
-	// check every proposal and find if it's the latter case, then support that TC block. Otherwise,
-	// I vote for nothing and wait for either a higher round block supported by the majority or for
-	// my turn to propose the TC'd block.
-	var proposalsWithTcBlock []*types.BlockProposal
-	for _, proposal := range s.proposals {
-		if bytes.Equal(proposal.BlockHeader.Hash(), tcBlock.Hash()) &&
-			proposal.Cert.Round >= pCert.Round {
-			proposalsWithTcBlock = append(proposalsWithTcBlock, proposal)
-		}
-	}
-	// no one has the same tc block as me, I do nothing.
-	if len(proposalsWithTcBlock) == 0 {
-		return nil, nil
-	}
-	// otherwise I need to find the proposal with the min score so that nodes like me all agree on
-	// the same proposal to prepare
-	minProposal = proposalsWithTcBlock[0]
-	for _, proposal := range proposalsWithTcBlock {
-		if proposal.Score() < minProposal.Score() {
-			minProposal = proposal
-		}
-	}
 	return minProposal.BlockHeader, nil
 }
 
@@ -341,7 +275,7 @@ func (s *Service) prepare(blockHash []byte) error {
 	return nil
 }
 
-func (s *Service) tentativeCommit(blockHash []byte) error {
+func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
 	log.Infof("tentativeCommit: block %x", blockHash)
 	// TODO check transactions before TC
 
@@ -358,7 +292,8 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 		Message:  &types.Message_Tc{Tc: tcWithCert},
 		Deadline: s.nextRoundTime().UnixMilli(),
 	}
-	s.outMsgs.Put(s.tcKey(), signedMsg)
+	outMsgs.Put(s.tcKey(), signedMsg)
+	log.Infof("saved tentativeCommit: block %x", blockHash)
 
 	err = s.db.PutTcCert(blockHash, cert)
 	if err != nil {
@@ -369,7 +304,7 @@ func (s *Service) tentativeCommit(blockHash []byte) error {
 	return s.db.Put(tcBlockKey, blockHash, nil)
 }
 
-func (s *Service) commit(blockHash []byte) error {
+func (s *Service) commit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
 	log.Infof("commit block %x", blockHash)
 
 	// TODO do commit stuff
@@ -394,6 +329,20 @@ func (s *Service) signNewCertificate(msg proto.Message) (*types.Certificate, err
 		SigCounts: sigCounts,
 		Round:     s.round.Load(),
 	}, nil
+}
+
+func (s *Service) addSigToCertificate(msg proto.Message, cert *types.Certificate) error {
+	if cert.SigCounts[s.cfg.MyValidatorIndex()] > 0 {
+		return nil
+	}
+	bs, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	sig := crypto.SignBytes(s.cfg.MyPrivKey(), bs)
+	cert.SigCounts[s.cfg.MyValidatorIndex()] += 1
+	cert.AggSig = crypto.AggSigsBytes([][]byte{cert.AggSig, sig})
+	return nil
 }
 
 func (s *Service) verifyCertificate(msg proto.Message, cert *types.Certificate) error {

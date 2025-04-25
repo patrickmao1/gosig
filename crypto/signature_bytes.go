@@ -59,6 +59,15 @@ func VerifySigBytes(pubKey, msg, sig []byte) bool {
 	return VerifySig(mustBytesToG1(pubKey), msg, mustBytesToG2(sig))
 }
 
+func AggSigsBytes(sigs [][]byte) []byte {
+	var sigsG2 []*bls12381.PointG2
+	g2 := bls12381.NewG2()
+	for _, sig := range sigs {
+		sigsG2 = append(sigsG2, mustBytesToG2(sig))
+	}
+	return g2.ToCompressed(AggSigs(sigsG2))
+}
+
 func AggPubKeysBytes(pubKeys [][]byte, multiplicities []uint32) []byte {
 	var keys []*bls12381.PointG1
 	g1 := bls12381.NewG1()

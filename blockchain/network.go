@@ -76,13 +76,13 @@ func (n *Network) StartGossip() {
 		}
 
 		// send to randomized peers every time
-		n.peers = pickRandN(n.peers, n.fanout)
+		targets := pickRandN(n.peers, n.fanout)
 
 		ctx, cancel := context.WithTimeout(context.Background(), n.interval)
 		done := make(chan struct{})
 		var wg sync.WaitGroup
 
-		for _, peer := range n.peers[:n.fanout] {
+		for _, peer := range targets[:n.fanout] {
 			wg.Add(1)
 			url := peer.GetURL()
 			go func() {
