@@ -2,13 +2,14 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
-	"sync"
+	"math/rand"
 )
 
 type Client struct {
@@ -48,23 +49,20 @@ func (c *Client) SubmitTx(tx *types.Transaction) error {
 	}
 	req := &types.SubmitTransactionReq{Tx: signedTx}
 
-	c.callClients(func(idx int, client types.RPCClient) {
-		_, err := client.SubmitTransaction(context.Background(), req)
-		if err != nil {
-			log.Errorf("failed to submit transaction to node %d: %s", idx, err.Error())
-		}
-	})
+	i := rand.Intn(len(c.clients))
+	_, err = c.clients[i].SubmitTransaction(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to submit transaction to node %d: %s", i, err.Error())
+	}
 	return nil
 }
 
-func (c *Client) callClients(call func(idx int, client types.RPCClient)) {
-	var wg = new(sync.WaitGroup)
-	for i, client := range c.clients {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			call(i, client)
-			wg.Done()
-		}(wg)
+func (c *Client) GetBalance(pubkey []byte) (uint64, error) {
+	req := &types.GetBalanceReq{Account: pubkey}
+	i := rand.Intn(len(c.clients))
+	res, err := c.clients[i].GetBalance(context.Background(), req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get balance from node %d: %s", i, err.Error())
 	}
-	wg.Wait()
+	return res.Amount, nil
 }

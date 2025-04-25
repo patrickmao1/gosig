@@ -1,7 +1,7 @@
 protogen:
 	protoc -I proto/ \
 		--go_out=./ \
-		--go-grpc_out=./ \
+		--go-grpc_out=require_unimplemented_servers=false:./ \
 		proto/*.proto
 
 test_network_up:

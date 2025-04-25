@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/patrickmao1/gosig/blockchain"
-	"github.com/patrickmao1/gosig/rpc"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"gopkg.in/yaml.v3"
@@ -32,9 +32,6 @@ func main() {
 
 	// parse configs
 	cfg := getMyConfig(configPath)
-	for i, val := range cfg.Validators {
-		log.Infof("Validator #%d: pubkey %x..", i, val.GetPubKey()[:8])
-	}
 
 	// init db
 	err = os.RemoveAll(cfg.DbPath) // start from a clean db
@@ -52,13 +49,16 @@ func main() {
 	genesis := blockchain.DefaultGenesisConfig()
 	txPool := blockchain.NewTxPool()
 
-	// service modules
-	txServer := rpc.NewServer(txPool)
-	chain := blockchain.NewService(cfg, genesis, d, txPool)
+	// init test state
+	pubkeys, _ := utils.GenTestKeyPairs(10)
+	err = d.PutBalance(pubkeys[0], 1000)
+	if err != nil {
+		return
+	}
 
-	// start services
-	go chain.Start()
-	txServer.Start()
+	// starts the blockchain
+	chain := blockchain.NewService(cfg, genesis, d, txPool)
+	chain.Start()
 }
 
 func getMyConfig(path string) *blockchain.NodeConfig {

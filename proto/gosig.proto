@@ -46,6 +46,7 @@ message Message {
     PrepareCertificate prepare = 3;
     TentativeCommitCertificate tc = 4;
     TransactionHashes tx_hashes = 5;
+    SignedTransaction tx = 6;
   }
 }
 

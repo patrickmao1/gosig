@@ -1,9 +1,0 @@
-syntax = "proto3";
-
-package gosig;
-
-option go_package = "./types";
-
-service Query {
-    
-}

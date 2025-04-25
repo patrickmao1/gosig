@@ -34,11 +34,13 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 		err = s.handleTC(msg.GetTc())
 	case *types.Message_TxHashes:
 		err = s.handleTxHashes(msg.GetTxHashes())
+	case *types.Message_Tx:
+		err = s.handleTransaction(msg.GetTx())
 	default:
 		err = fmt.Errorf("handleMessage: unknown message type. msg %v", signedMsg)
 	}
 	if err != nil {
-		log.Errorln("handleMessage err:", err)
+		log.Errorf("handleMessage %s err: %s", msg.ToString(), err.Error())
 	}
 }
 
@@ -226,7 +228,15 @@ func (s *Service) handleTxHashes(txHashes *types.TransactionHashes) error {
 	}
 
 	blockHash := s.minProposal.BlockHeader.Hash()
+	msg := &types.Message{
+		Message: &types.Message_TxHashes{TxHashes: txHashes},
+	}
+	s.outMsgs.Put(s.txHashesKey(), msg, s.prepareGossipEndTime())
 	return s.db.PutTxHashes(blockHash, txHashes)
+}
+
+func (s *Service) handleTransaction(tx *types.SignedTransaction) error {
+	return s.txPool.AddTransaction(tx)
 }
 
 func (s *Service) isValidProposal(prop *types.BlockProposal) bool {

@@ -60,15 +60,14 @@ func (c *networkTestClient) Broadcast(ctx context.Context, in *BroadcastReq, opt
 }
 
 // NetworkTestServer is the server API for NetworkTest service.
-// All implementations must embed UnimplementedNetworkTestServer
+// All implementations should embed UnimplementedNetworkTestServer
 // for forward compatibility.
 type NetworkTestServer interface {
 	GetMsgs(context.Context, *GetReq) (*GetRes, error)
 	Broadcast(context.Context, *BroadcastReq) (*BroadcastRes, error)
-	mustEmbedUnimplementedNetworkTestServer()
 }
 
-// UnimplementedNetworkTestServer must be embedded to have
+// UnimplementedNetworkTestServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
@@ -81,8 +80,7 @@ func (UnimplementedNetworkTestServer) GetMsgs(context.Context, *GetReq) (*GetRes
 func (UnimplementedNetworkTestServer) Broadcast(context.Context, *BroadcastReq) (*BroadcastRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Broadcast not implemented")
 }
-func (UnimplementedNetworkTestServer) mustEmbedUnimplementedNetworkTestServer() {}
-func (UnimplementedNetworkTestServer) testEmbeddedByValue()                     {}
+func (UnimplementedNetworkTestServer) testEmbeddedByValue() {}
 
 // UnsafeNetworkTestServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to NetworkTestServer will

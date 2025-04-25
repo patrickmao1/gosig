@@ -9,6 +9,17 @@ import (
 	"slices"
 )
 
+func (tx *SignedTransaction) Hash() []byte {
+	return tx.Tx.Hash()
+}
+
+func (tx *SignedTransaction) ToString() string {
+	if tx == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SignedTransaction(%s, Sig %x..)", tx.Tx.ToString(), tx.Sig[:8])
+}
+
 func (tx *Transaction) Hash() []byte {
 	bs, err := proto.Marshal(tx)
 	if err != nil {
@@ -16,6 +27,13 @@ func (tx *Transaction) Hash() []byte {
 	}
 	hash := blake2b.Sum256(bs)
 	return hash[:]
+}
+
+func (tx *Transaction) ToString() string {
+	if tx == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("Transaction(hash %x.., From %x.., To %x.., Amount %d)", tx.Hash()[:8], tx.From[:8], tx.To[:8], tx.Amount)
 }
 
 func (txs *TransactionHashes) Root() []byte {

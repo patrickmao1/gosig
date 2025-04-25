@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/blake2b"
+	"google.golang.org/protobuf/proto"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -46,10 +47,8 @@ type Service struct {
 }
 
 func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
-
 	outbound := NewOutboundMsgBuffer(cfg.MyPrivKey(), cfg.MyValidatorIndex())
 	inbound := NewInboundMsgBuffer(cfg.Validators)
-
 	nw := NewNetwork(
 		outbound,
 		inbound,
@@ -75,6 +74,7 @@ func (s *Service) Start() {
 
 	go s.nw.StartGossip()
 	go s.startProcessingMsgs()
+	go s.StartRPC()
 
 	nextRoundTime := s.nextRoundTime()
 	log.Infof("genesis time %s, current round %d, now %s, next round time %s, proposal threshold %.2f",
@@ -171,12 +171,6 @@ func (s *Service) initRoundState() error {
 }
 
 func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
-	txs := s.txPool.Dump()
-	if len(txs) == 0 {
-		log.Infof("skip proposing: no tx in pool")
-		return nil, nil
-	}
-
 	// determine if I should propose
 	proposalScore, proposerProof := crypto.VRF(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^h}(r^h,Q^{h-1})
 	log.WithField("round", s.round.Load()).
@@ -194,6 +188,12 @@ func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
 		Height:        s.head.Height + 1,
 		ParentHash:    headHash,
 		ProposerProof: proposerProof,
+	}
+
+	txs := s.txPool.List(100)
+	if len(txs) == 0 {
+		log.Debugf("skip proposing: no tx in pool")
+		return nil, nil
 	}
 
 	var cert *types.Certificate
@@ -248,14 +248,20 @@ func (s *Service) prepare(blockHash []byte) error {
 }
 
 func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
+	txHashes, err := s.db.GetTxHashes(blockHash)
+	if err != nil {
+		return err
+	}
+	txs, err := s.txPool.BatchGet(txHashes.TxHashes)
+	if err != nil {
+		return err
+	}
+	pass := checkTxs(txs)
+	if !pass {
+		return fmt.Errorf("cannot tc block %x..: tx check failed", blockHash[:8])
+	}
+
 	log.Infof("tentativeCommit: block %x", blockHash)
-	// TODO check transactions before TC
-	//txs, root, err := s.db.GetBlockTxs(blockHash)
-	//if err != nil {
-	//	return err
-	//}
-	//if len(txs) == 0 {
-	//}
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
 	cert, err := s.signNewCert(tc)
@@ -274,6 +280,22 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 	return s.db.PutTcCert(blockHash, cert)
 }
 
+func checkTxs(txs []*types.SignedTransaction) bool {
+	for _, tx := range txs {
+		bs, err := proto.Marshal(tx.Tx)
+		if err != nil {
+			log.Error(err)
+			return false
+		}
+		pass := crypto.VerifySigBytes(tx.Tx.From, bs, tx.Sig)
+		if !pass {
+			log.Errorf("tx %s invalid signature", tx.ToString())
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) commit(blockHash []byte) error {
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
@@ -287,19 +309,101 @@ func (s *Service) commit(blockHash []byte) error {
 	}
 	log.Infof("commit block %x", blockHash)
 
-	// TODO fetch transactions and execute
-	//txs, root, err := s.db.GetBlockTxs(blockHash)
-	//if err != nil {
-	//	return fmt.Errorf("commit: failed to get block %s.. txs: %s", blockHash[:8], err.Error())
-	//}
-	//for _, tx := range txs {
-	//
-	//}
-
 	err = s.db.PutHeadBlock(blockHash)
 	if err != nil {
 		return err
 	}
+
+	var txHashes *types.TransactionHashes
+	//for i := 0; txHashes == nil && i < 10; i++ {
+	//	txHashes, err = s.db.GetTxHashes(blockHash)
+	//	if err != nil {
+	//		log.Warnf("commit: get txhashes for block %x..: %s, attempt %d/10", blockHash[:8], err.Error(), i+1)
+	//		time.Sleep(s.cfg.GossipInterval())
+	//		continue
+	//	}
+	//	txs, err := s.txPool.BatchGet(txHashes.TxHashes)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	err = s.commitTxs(txs)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	s.txPool.BatchDelete(txHashes.TxHashes)
+	//	return nil
+	//}
+	txHashes, err = s.db.GetTxHashes(blockHash)
+	if err != nil {
+		return fmt.Errorf("commit: get txhashes for block %x..: %s", blockHash[:8], err.Error())
+	}
+	txs, err := s.txPool.BatchGet(txHashes.TxHashes)
+	if err != nil {
+		return err
+	}
+	err = s.commitTxs(txs)
+	if err != nil {
+		return err
+	}
+	s.txPool.BatchDelete(txHashes.TxHashes)
+	return nil
+	//return fmt.Errorf("commit: failed to get txhashes for block %x.. after 10 attempts", blockHash[:8])
+}
+
+func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
+	dbtx, err := s.db.OpenTransaction()
+	if err != nil {
+		return err
+	}
+
+	batch := new(leveldb.Batch)
+	for _, tx := range txs {
+		senderKey, recipientKey := accountKey(tx.Tx.From), accountKey(tx.Tx.To)
+
+		from, err := dbtx.Get(senderKey, nil)
+		if err != nil && errors.Is(err, leveldb.ErrNotFound) {
+			from = make([]byte, 8)
+		} else if err != nil {
+			dbtx.Discard()
+			return fmt.Errorf("commitTxs: failed to get sender from db: %s", err.Error())
+		}
+
+		to, err := dbtx.Get(recipientKey, nil)
+		if err != nil && errors.Is(err, leveldb.ErrNotFound) {
+			to = make([]byte, 8)
+		} else if err != nil {
+			dbtx.Discard()
+			return fmt.Errorf("commitTxs: failed to get recipient from db: %s", err.Error())
+		}
+
+		senderBalance := binary.BigEndian.Uint64(from)
+		recipientBalance := binary.BigEndian.Uint64(to)
+
+		if senderBalance < tx.Tx.Amount {
+			dbtx.Discard()
+			return fmt.Errorf("sender balance %d < send amount %d", senderBalance, tx.Tx.Amount)
+		}
+
+		senderBalance -= tx.Tx.Amount
+		recipientBalance += tx.Tx.Amount
+
+		binary.BigEndian.PutUint64(from, senderBalance)
+		binary.BigEndian.PutUint64(to, recipientBalance)
+
+		batch.Put(senderKey, from)
+		batch.Put(recipientKey, to)
+	}
+	err = dbtx.Write(batch, nil)
+	if err != nil {
+		dbtx.Discard()
+		return err
+	}
+
+	err = dbtx.Commit()
+	if err != nil {
+		return err
+	}
+	log.Infof("committed %d txs", len(txs))
 	return nil
 }
 
@@ -334,6 +438,10 @@ func (s *Service) nextRoundTime() time.Time {
 	return s.genesis.GenesisTime().Add(sinceGenesis)
 }
 
+func (s *Service) gossipDDLFromNow() time.Time {
+	return time.Now().Add(s.cfg.GossipDuration())
+}
+
 func computeTxRoot(signedTxs []*types.SignedTransaction) []byte {
 	var txHashes []byte
 	for _, tx := range signedTxs {
@@ -346,6 +454,7 @@ func computeTxRoot(signedTxs []*types.SignedTransaction) []byte {
 func (s *Service) proposalKey() string {
 	return fmt.Sprintf("proposal-%d", s.round.Load())
 }
-func (s *Service) prepareKey() string  { return fmt.Sprintf("prepare-%d", s.round.Load()) }
-func (s *Service) tcKey() string       { return fmt.Sprintf("tc-%d", s.round.Load()) }
-func (s *Service) txHashesKey() string { return fmt.Sprintf("txHashes-%d", s.round.Load()) }
+func (s *Service) prepareKey() string         { return fmt.Sprintf("prepare-%d", s.round.Load()) }
+func (s *Service) tcKey() string              { return fmt.Sprintf("tc-%d", s.round.Load()) }
+func (s *Service) txHashesKey() string        { return fmt.Sprintf("txHashes-%d", s.round.Load()) }
+func (s *Service) txKey(txHash []byte) string { return fmt.Sprintf("tx-%x", txHash) }

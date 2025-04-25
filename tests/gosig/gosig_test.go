@@ -3,12 +3,13 @@ package gosig
 import (
 	"github.com/patrickmao1/gosig/blockchain"
 	"github.com/patrickmao1/gosig/client"
-	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb"
 	"testing"
+	"time"
 )
 
 var rpcURLs = []string{
@@ -22,11 +23,7 @@ var pubkeys [][]byte
 var privkeys [][]byte
 
 func init() {
-	for i := 0; i < 10; i++ {
-		sk, pk := crypto.GenKeyPairBytesFromSeed(int64(i))
-		pubkeys = append(pubkeys, pk)
-		privkeys = append(privkeys, sk)
-	}
+	pubkeys, privkeys = utils.GenTestKeyPairs(10)
 }
 
 func Test(t *testing.T) {
@@ -37,6 +34,20 @@ func Test(t *testing.T) {
 		Amount: 123,
 	})
 	require.NoError(t, err)
+
+	pass := false
+	for i := 0; i < 20; i++ {
+		time.Sleep(1 * time.Second)
+		balance, err := c.GetBalance(pubkeys[0])
+		if err != nil {
+			return
+		}
+		if balance == 1000-123 {
+			pass = true
+			break
+		}
+	}
+	require.True(t, pass)
 }
 
 func TestDB(t *testing.T) {

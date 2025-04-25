@@ -8,7 +8,7 @@ import "gosig.proto";
 
 service RPC {
     rpc SubmitTransaction(SubmitTransactionReq) returns (SubmitTransactionRes);
-    rpc TransactionStatus(TransactionStatusReq) returns (TransactionStatusRes);
+    rpc GetBalance(GetBalanceReq) returns (GetBalanceRes);
 }
 
 message SubmitTransactionReq {
@@ -17,10 +17,10 @@ message SubmitTransactionReq {
 
 message SubmitTransactionRes {}
 
-message TransactionStatusReq {
-    bytes tx_hash = 1;
+message GetBalanceReq {
+    bytes account = 1;
 }
 
-message TransactionStatusRes {
-    string status = 1;
+message GetBalanceRes {
+    uint64 amount = 1;
 }

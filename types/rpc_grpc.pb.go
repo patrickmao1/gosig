@@ -20,7 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	RPC_SubmitTransaction_FullMethodName = "/gosig.RPC/SubmitTransaction"
-	RPC_TransactionStatus_FullMethodName = "/gosig.RPC/TransactionStatus"
+	RPC_GetBalance_FullMethodName        = "/gosig.RPC/GetBalance"
 )
 
 // RPCClient is the client API for RPC service.
@@ -28,7 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RPCClient interface {
 	SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*SubmitTransactionRes, error)
-	TransactionStatus(ctx context.Context, in *TransactionStatusReq, opts ...grpc.CallOption) (*TransactionStatusRes, error)
+	GetBalance(ctx context.Context, in *GetBalanceReq, opts ...grpc.CallOption) (*GetBalanceRes, error)
 }
 
 type rPCClient struct {
@@ -49,10 +49,10 @@ func (c *rPCClient) SubmitTransaction(ctx context.Context, in *SubmitTransaction
 	return out, nil
 }
 
-func (c *rPCClient) TransactionStatus(ctx context.Context, in *TransactionStatusReq, opts ...grpc.CallOption) (*TransactionStatusRes, error) {
+func (c *rPCClient) GetBalance(ctx context.Context, in *GetBalanceReq, opts ...grpc.CallOption) (*GetBalanceRes, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TransactionStatusRes)
-	err := c.cc.Invoke(ctx, RPC_TransactionStatus_FullMethodName, in, out, cOpts...)
+	out := new(GetBalanceRes)
+	err := c.cc.Invoke(ctx, RPC_GetBalance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -60,15 +60,14 @@ func (c *rPCClient) TransactionStatus(ctx context.Context, in *TransactionStatus
 }
 
 // RPCServer is the server API for RPC service.
-// All implementations must embed UnimplementedRPCServer
+// All implementations should embed UnimplementedRPCServer
 // for forward compatibility.
 type RPCServer interface {
 	SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error)
-	TransactionStatus(context.Context, *TransactionStatusReq) (*TransactionStatusRes, error)
-	mustEmbedUnimplementedRPCServer()
+	GetBalance(context.Context, *GetBalanceReq) (*GetBalanceRes, error)
 }
 
-// UnimplementedRPCServer must be embedded to have
+// UnimplementedRPCServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
@@ -78,11 +77,10 @@ type UnimplementedRPCServer struct{}
 func (UnimplementedRPCServer) SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitTransaction not implemented")
 }
-func (UnimplementedRPCServer) TransactionStatus(context.Context, *TransactionStatusReq) (*TransactionStatusRes, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TransactionStatus not implemented")
+func (UnimplementedRPCServer) GetBalance(context.Context, *GetBalanceReq) (*GetBalanceRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBalance not implemented")
 }
-func (UnimplementedRPCServer) mustEmbedUnimplementedRPCServer() {}
-func (UnimplementedRPCServer) testEmbeddedByValue()             {}
+func (UnimplementedRPCServer) testEmbeddedByValue() {}
 
 // UnsafeRPCServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to RPCServer will
@@ -120,20 +118,20 @@ func _RPC_SubmitTransaction_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RPC_TransactionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TransactionStatusReq)
+func _RPC_GetBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBalanceReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RPCServer).TransactionStatus(ctx, in)
+		return srv.(RPCServer).GetBalance(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RPC_TransactionStatus_FullMethodName,
+		FullMethod: RPC_GetBalance_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RPCServer).TransactionStatus(ctx, req.(*TransactionStatusReq))
+		return srv.(RPCServer).GetBalance(ctx, req.(*GetBalanceReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -150,8 +148,8 @@ var RPC_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RPC_SubmitTransaction_Handler,
 		},
 		{
-			MethodName: "TransactionStatus",
-			Handler:    _RPC_TransactionStatus_Handler,
+			MethodName: "GetBalance",
+			Handler:    _RPC_GetBalance_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -1,6 +1,8 @@
 package blockchain
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/patrickmao1/gosig/types"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -27,6 +29,10 @@ func blockTcCertKey(blockHash []byte) []byte {
 
 func txKey(txHash []byte) []byte {
 	return []byte(fmt.Sprintf("transaction/%x", txHash))
+}
+
+func accountKey(pubkey []byte) []byte {
+	return []byte(fmt.Sprintf("account/%x", pubkey))
 }
 
 type DB struct {
@@ -83,6 +89,23 @@ func (db *DB) PutTxHashes(blockHash []byte, txHashes *types.TransactionHashes) e
 
 func (db *DB) GetTxHashes(blockHash []byte) (*types.TransactionHashes, error) {
 	return get[types.TransactionHashes](db, txHashesKey(blockHash))
+}
+
+func (db *DB) PutBalance(account []byte, balance uint64) error {
+	bs := make([]byte, 8)
+	binary.BigEndian.PutUint64(bs, balance)
+	return db.Put(accountKey(account), bs, nil)
+}
+
+func (db *DB) GetBalance(account []byte) (uint64, error) {
+	bs, err := db.Get(accountKey(account), nil)
+	if err != nil && errors.Is(err, leveldb.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return binary.BigEndian.Uint64(bs), nil
 }
 
 func (db *DB) GetBlockTxs(blockHash []byte) (txs []*types.SignedTransaction, root []byte, err error) {

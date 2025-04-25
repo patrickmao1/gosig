@@ -123,6 +123,10 @@ func (c *NodeConfig) GossipDuration() time.Duration {
 	return time.Duration(c.GossipDurationMs) * time.Millisecond
 }
 
+func (c *NodeConfig) GossipInterval() time.Duration {
+	return time.Duration(c.GossipIntervalMs) * time.Millisecond
+}
+
 func (c *NodeConfig) ProposalThresholdPerc() float64 {
 	t := big.NewFloat(float64(c.ProposalThreshold))
 	t.Quo(t, big.NewFloat(float64(math.MaxUint32)))
