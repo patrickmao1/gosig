@@ -345,6 +345,7 @@ func (s *Service) commit(blockHash []byte) error {
 }
 
 func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
+	log.Infof("commit %d txs", len(txs))
 	dbtx, err := s.db.OpenTransaction()
 	if err != nil {
 		return err
@@ -358,7 +359,7 @@ func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
 		senderBal, err := dbtx.Get(senderKey, nil)
 		if err != nil && errors.Is(err, leveldb.ErrNotFound) {
 			senderBal = make([]byte, 8)
-		} else {
+		} else if err != nil {
 			return err
 		}
 		senderBalance := binary.BigEndian.Uint64(senderBal)
@@ -367,7 +368,7 @@ func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
 		receiverBal, err := dbtx.Get(receiverKey, nil)
 		if err != nil && errors.Is(err, leveldb.ErrNotFound) {
 			receiverBal = make([]byte, 8)
-		} else {
+		} else if err != nil {
 			return err
 		}
 		receiverBalance := binary.BigEndian.Uint64(receiverBal)
@@ -386,25 +387,22 @@ func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
 		balances[string(receiverKey)] += tx.Tx.Amount
 	}
 
-	// save new state to db
+	// save the new state to db
 	batch := new(leveldb.Batch)
 	for key, bal := range balances {
 		bs := make([]byte, 8)
 		binary.BigEndian.PutUint64(bs, bal)
 		batch.Put([]byte(key), bs)
 	}
-
 	err = dbtx.Write(batch, nil)
 	if err != nil {
 		dbtx.Discard()
 		return err
 	}
-
 	err = dbtx.Commit()
 	if err != nil {
 		return err
 	}
-	log.Infof("committed %d txs", len(txs))
 	return nil
 }
 
