@@ -46,7 +46,6 @@ func (s *Service) handleMessage(msg *types.Message) {
 }
 
 func (s *Service) handleProposal(prop *types.BlockProposal) error {
-	defer utils.LogExecTime(time.Now(), "handleProposal")
 	log.Debugf("handleProposal: block hash %x.., block %s", prop.BlockHeader.Hash()[:8], prop.ToString())
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
@@ -77,7 +76,6 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 }
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
-	defer utils.LogExecTime(time.Now(), "handlePrepare")
 	log.Debugf("handlePrepare %s", incPrep.ToString())
 	if incPrep.Cert.Round != s.round.Load() {
 		log.Warnf("ignoring prepare: prepare.round %d != local round %d",
@@ -165,7 +163,7 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 	log.Debugf("handleTC %s", incTc.ToString())
 	// merge tc with my tc of this round
 	if incTc.Cert.Round != s.round.Load() {
-		log.Warnf("handleTC: ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round)
+		log.Warnf("handleTC: ignoring TC msg: TC.round %d != local round %d", incTc.Cert.Round, s.round.Load())
 		return nil
 	}
 

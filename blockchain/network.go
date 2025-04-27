@@ -17,6 +17,7 @@ import (
 )
 
 type OutboundMsgPool interface {
+	PackPriority() *types.Envelope
 	Pack() *types.Envelope
 }
 
@@ -90,11 +91,8 @@ func (n *Network) StartGossip() {
 	for {
 		ts := <-t
 
+		prio := n.out.PackPriority()
 		envelope := n.out.Pack()
-
-		if envelope == nil {
-			continue
-		}
 
 		// send to randomized peers every time
 		targets := pickRandN(n.clients, n.fanout)
@@ -103,10 +101,24 @@ func (n *Network) StartGossip() {
 		done := make(chan struct{})
 		var wg sync.WaitGroup
 		for _, peer := range targets[:n.fanout] {
-			wg.Add(1)
+			wg.Add(2)
 			client := peer
 			go func() {
 				defer wg.Done()
+				if prio == nil {
+					return
+				}
+				_, err := client.Send(context.Background(), prio)
+				if err != nil {
+					log.Errorf("failed to send prio gossip to peer: %s", err.Error())
+					return
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				if envelope == nil {
+					return
+				}
 				_, err := client.Send(context.Background(), envelope)
 				if err != nil {
 					log.Errorf("failed to send gossip to peer: %s", err.Error())
@@ -123,7 +135,9 @@ func (n *Network) StartGossip() {
 		// wait for either all Sends are done or gossip round is over
 		select {
 		case <-done:
-			log.Debugf("gossip round done: sent %d msgs, took %s", len(envelope.Msgs.Msgs), time.Since(ts))
+			if envelope != nil {
+				log.Debugf("gossip round done: sent %d msgs, took %s", len(envelope.Msgs.Msgs), time.Since(ts))
+			}
 			//cancel()
 			continue
 			//case <-ctx.Done():

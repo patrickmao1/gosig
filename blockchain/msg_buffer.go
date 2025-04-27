@@ -3,7 +3,6 @@ package blockchain
 import (
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
-	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
@@ -14,6 +13,7 @@ type OutboundMsgBuffer struct {
 	myPrivkey  []byte
 	myValIndex uint32
 
+	prioMsgs  map[string]*types.Message
 	msgs      map[string]*types.Message
 	deleteDDL map[string]time.Time
 	relayDDL  map[string]time.Time
@@ -24,10 +24,25 @@ func NewOutboundMsgBuffer(myPrivKey []byte, myValIndex uint32) *OutboundMsgBuffe
 	return &OutboundMsgBuffer{
 		myPrivkey:  myPrivKey,
 		myValIndex: myValIndex,
+		prioMsgs:   make(map[string]*types.Message),
 		msgs:       make(map[string]*types.Message),
 		deleteDDL:  make(map[string]time.Time),
 		relayDDL:   make(map[string]time.Time),
 	}
+}
+
+func (b *OutboundMsgBuffer) PutPriority(key string, msg *types.Message, relayDDL time.Time, deleteDDL ...time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.prioMsgs[key] = msg
+
+	if len(deleteDDL) > 0 {
+		b.deleteDDL[key] = deleteDDL[0]
+	} else {
+		b.deleteDDL[key] = relayDDL
+	}
+	b.relayDDL[key] = relayDDL
 }
 
 func (b *OutboundMsgBuffer) Put(key string, msg *types.Message, relayDDL time.Time, deleteDDL ...time.Time) {
@@ -74,7 +89,7 @@ func (b *OutboundMsgBuffer) Has(key string) bool {
 	return ok
 }
 
-func (b *OutboundMsgBuffer) Pack() *types.Envelope {
+func (b *OutboundMsgBuffer) PackPriority() *types.Envelope {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -83,7 +98,51 @@ func (b *OutboundMsgBuffer) Pack() *types.Envelope {
 	}
 
 	msgs := &types.Messages{}
+
+	for id, msg := range b.prioMsgs {
+		now := time.Now()
+		if b.deleteDDL[id].Before(now) {
+			delete(b.prioMsgs, id)
+			delete(b.deleteDDL, id)
+		} else {
+			if !b.relayDDL[id].Before(now) {
+				msgs.Msgs = append(msgs.Msgs, msg)
+			}
+		}
+	}
+	if len(msgs.Msgs) == 0 {
+		return nil
+	}
+
+	bs, err := proto.Marshal(msgs)
+	if err != nil {
+		log.Errorf("Error marshalling messages: %v", err)
+	}
+	sig := crypto.SignBytes(b.myPrivkey, bs)
+
+	return &types.Envelope{
+		Msgs:           msgs,
+		Sig:            sig,
+		ValidatorIndex: b.myValIndex,
+	}
+}
+
+func (b *OutboundMsgBuffer) Pack() *types.Envelope {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(b.msgs) == 0 {
+		return nil
+	}
+
+	const limit = 100
+
+	msgs := &types.Messages{}
+
 	for id, msg := range b.msgs {
+		if len(msgs.Msgs) >= limit {
+			break
+		}
 		now := time.Now()
 		if b.deleteDDL[id].Before(now) {
 			delete(b.msgs, id)
@@ -94,6 +153,10 @@ func (b *OutboundMsgBuffer) Pack() *types.Envelope {
 			}
 		}
 	}
+	if len(msgs.Msgs) == 0 {
+		return nil
+	}
+
 	bs, err := proto.Marshal(msgs)
 	if err != nil {
 		log.Errorf("Error marshalling messages: %v", err)
@@ -124,7 +187,6 @@ func NewInboundMsgBuffer(vals Validators) *InboundMsgBuffer {
 }
 
 func (b *InboundMsgBuffer) Enqueue(envelope *types.Envelope) {
-	utils.LogExecTime(time.Now(), "Enqueue %d msgs", len(envelope.Msgs.Msgs))
 	ok, err := b.checkSig(envelope)
 	if err != nil {
 		log.Errorf("failed to enqueue: err %s", err.Error())

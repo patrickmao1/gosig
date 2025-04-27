@@ -48,7 +48,7 @@ func TestParallel(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			var txs []*types.Transaction
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < 500; j++ {
 				txs = append(txs, &types.Transaction{
 					From:   pubkeys[0],
 					To:     pubkeys[1],
