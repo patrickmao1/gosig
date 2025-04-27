@@ -146,8 +146,8 @@ func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 		GossipDegree:      2,
 		GossipDurationMs:  4000,
 
-		ProposalStageDurationMs:  4000,
-		AgreementStateDurationMs: 8000,
+		ProposalStageDurationMs:  3000,
+		AgreementStateDurationMs: 7000,
 	}
 	privkeys := make([]string, 0, len(nodes))
 	for _, node := range nodes {

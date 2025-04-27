@@ -1,10 +1,8 @@
 package blockchain
 
 import (
-	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
-	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
@@ -15,7 +13,7 @@ type OutboundMsgBuffer struct {
 	myPrivkey  []byte
 	myValIndex uint32
 
-	msgs      map[string]*types.Envelope
+	msgs      map[string]*types.Message
 	deleteDDL map[string]time.Time
 	relayDDL  map[string]time.Time
 	mu        sync.RWMutex
@@ -25,7 +23,7 @@ func NewOutboundMsgBuffer(myPrivKey []byte, myValIndex uint32) *OutboundMsgBuffe
 	return &OutboundMsgBuffer{
 		myPrivkey:  myPrivKey,
 		myValIndex: myValIndex,
-		msgs:       make(map[string]*types.Envelope),
+		msgs:       make(map[string]*types.Message),
 		deleteDDL:  make(map[string]time.Time),
 		relayDDL:   make(map[string]time.Time),
 	}
@@ -35,7 +33,7 @@ func (b *OutboundMsgBuffer) Put(key string, msg *types.Message, relayDDL time.Ti
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.msgs[key] = b.sign(msg)
+	b.msgs[key] = msg
 
 	if len(deleteDDL) > 0 {
 		b.deleteDDL[key] = deleteDDL[0]
@@ -52,7 +50,7 @@ func (b *OutboundMsgBuffer) Get(key string) (*types.Message, bool) {
 	if !ok {
 		return nil, false
 	}
-	return msg.Msg, ok
+	return msg, ok
 }
 
 func (b *OutboundMsgBuffer) Tx(doInTx func(buf *OutboundMsgBuffer) error) error {
@@ -75,10 +73,15 @@ func (b *OutboundMsgBuffer) Has(key string) bool {
 	return ok
 }
 
-func (b *OutboundMsgBuffer) List() []*types.Envelope {
+func (b *OutboundMsgBuffer) Pack() *types.Envelope {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var msgs []*types.Envelope
+
+	if len(b.msgs) == 0 {
+		return nil
+	}
+
+	msgs := &types.Messages{}
 	for id, msg := range b.msgs {
 		now := time.Now()
 		if b.deleteDDL[id].Before(now) {
@@ -86,30 +89,27 @@ func (b *OutboundMsgBuffer) List() []*types.Envelope {
 			delete(b.deleteDDL, id)
 		} else {
 			if !b.relayDDL[id].Before(now) {
-				msgs = append(msgs, msg)
+				msgs.Msgs = append(msgs.Msgs, msg)
 			}
 		}
 	}
-	return msgs
-}
-
-func (b *OutboundMsgBuffer) sign(msg *types.Message) *types.Envelope {
-	bs, err := proto.Marshal(msg)
+	bs, err := proto.Marshal(msgs)
 	if err != nil {
-		panic(fmt.Errorf("populateSignature: failed to marshal msg type %T: %s", msg.Message, err.Error()))
+		log.Errorf("Error marshalling messages: %v", err)
 	}
 	sig := crypto.SignBytes(b.myPrivkey, bs)
+
 	return &types.Envelope{
+		Msgs:           msgs,
 		Sig:            sig,
 		ValidatorIndex: b.myValIndex,
-		Msg:            msg,
 	}
 }
 
 type InboundMsgBuffer struct {
 	vals Validators
 
-	msgs       []*types.Envelope
+	msgs       []*types.Message
 	mu         sync.Mutex
 	hasMsgCond *sync.Cond
 }
@@ -122,52 +122,42 @@ func NewInboundMsgBuffer(vals Validators) *InboundMsgBuffer {
 	return b
 }
 
-func (b *InboundMsgBuffer) Enqueue(msgs []*types.Envelope) {
-	defer utils.LogExecTime(time.Now(), "Enqueue")
-
-	var signedMsgs []*types.Envelope
-	for _, msg := range msgs {
-		ok, err := b.checkSig(msg)
-		if err != nil {
-			log.Errorf("failed to enqueue: err %s", err.Error())
-			continue
-		}
-		if !ok {
-			log.Infof("msg from vi %d, pubkey %x..: sig verification failed: sig %x.., msg %s",
-				msg.ValidatorIndex, b.vals.PubKeys()[msg.ValidatorIndex][:8], msg.Sig[:8], msg.Msg.ToString())
-			continue
-		}
-		signedMsgs = append(signedMsgs, msg)
+func (b *InboundMsgBuffer) Enqueue(envelope *types.Envelope) {
+	ok, err := b.checkSig(envelope)
+	if err != nil {
+		log.Errorf("failed to enqueue: err %s", err.Error())
+		return
+	}
+	if !ok {
+		log.Infof("msg from vi %d, pubkey %x..: sig verification failed: sig %x..",
+			envelope.ValidatorIndex, b.vals.PubKeys()[envelope.ValidatorIndex][:8], envelope.Sig[:8])
+		return
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.msgs = append(b.msgs, msgs...)
+	b.msgs = append(b.msgs, envelope.Msgs.Msgs...)
+	log.Infof("current queue size %d", len(b.msgs))
 	b.hasMsgCond.Signal()
 }
 
-func (b *InboundMsgBuffer) DequeueAll() []*types.Envelope {
-	// Perf: maybe buffer and deduplicate msgs
-
+func (b *InboundMsgBuffer) DequeueAll() []*types.Message {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
 	for len(b.msgs) == 0 {
 		b.hasMsgCond.Wait()
 	}
-
 	msgs := b.msgs
 	b.msgs = nil
-
 	return msgs
 }
 
-func (b *InboundMsgBuffer) checkSig(signedMsg *types.Envelope) (bool, error) {
-	pubKey := b.vals[signedMsg.ValidatorIndex].GetPubKey()
-	msgBytes, err := proto.Marshal(signedMsg.Msg)
+func (b *InboundMsgBuffer) checkSig(envelope *types.Envelope) (bool, error) {
+	pubKey := b.vals[envelope.ValidatorIndex].GetPubKey()
+	msgBytes, err := proto.Marshal(envelope.Msgs)
 	if err != nil {
 		return false, err
 	}
-	pass := crypto.VerifySigBytes(pubKey, msgBytes, signedMsg.Sig)
+	pass := crypto.VerifySigBytes(pubKey, msgBytes, envelope.Sig)
 	return pass, err
 }

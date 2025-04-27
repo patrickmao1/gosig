@@ -51,7 +51,7 @@ func main() {
 
 	// init test state
 	pubkeys, _ := utils.GenTestKeyPairs(10)
-	err = d.PutBalance(pubkeys[0], 1000)
+	err = d.PutBalance(pubkeys[0], 1_000_000)
 	if err != nil {
 		return
 	}

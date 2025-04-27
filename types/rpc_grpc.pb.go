@@ -34,7 +34,7 @@ type RPCClient interface {
 	SubmitTransactions(ctx context.Context, in *SubmitTransactionsReq, opts ...grpc.CallOption) (*Empty, error)
 	GetBalance(ctx context.Context, in *GetBalanceReq, opts ...grpc.CallOption) (*GetBalanceRes, error)
 	// Internal RPCs
-	Send(ctx context.Context, in *Envelopes, opts ...grpc.CallOption) (*Empty, error)
+	Send(ctx context.Context, in *Envelope, opts ...grpc.CallOption) (*Empty, error)
 	QueryTXs(ctx context.Context, in *QueryTXsReq, opts ...grpc.CallOption) (*QueryTXsRes, error)
 }
 
@@ -76,7 +76,7 @@ func (c *rPCClient) GetBalance(ctx context.Context, in *GetBalanceReq, opts ...g
 	return out, nil
 }
 
-func (c *rPCClient) Send(ctx context.Context, in *Envelopes, opts ...grpc.CallOption) (*Empty, error) {
+func (c *rPCClient) Send(ctx context.Context, in *Envelope, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, RPC_Send_FullMethodName, in, out, cOpts...)
@@ -104,7 +104,7 @@ type RPCServer interface {
 	SubmitTransactions(context.Context, *SubmitTransactionsReq) (*Empty, error)
 	GetBalance(context.Context, *GetBalanceReq) (*GetBalanceRes, error)
 	// Internal RPCs
-	Send(context.Context, *Envelopes) (*Empty, error)
+	Send(context.Context, *Envelope) (*Empty, error)
 	QueryTXs(context.Context, *QueryTXsReq) (*QueryTXsRes, error)
 }
 
@@ -124,7 +124,7 @@ func (UnimplementedRPCServer) SubmitTransactions(context.Context, *SubmitTransac
 func (UnimplementedRPCServer) GetBalance(context.Context, *GetBalanceReq) (*GetBalanceRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBalance not implemented")
 }
-func (UnimplementedRPCServer) Send(context.Context, *Envelopes) (*Empty, error) {
+func (UnimplementedRPCServer) Send(context.Context, *Envelope) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Send not implemented")
 }
 func (UnimplementedRPCServer) QueryTXs(context.Context, *QueryTXsReq) (*QueryTXsRes, error) {
@@ -205,7 +205,7 @@ func _RPC_GetBalance_Handler(srv interface{}, ctx context.Context, dec func(inte
 }
 
 func _RPC_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Envelopes)
+	in := new(Envelope)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func _RPC_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{
 		FullMethod: RPC_Send_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RPCServer).Send(ctx, req.(*Envelopes))
+		return srv.(RPCServer).Send(ctx, req.(*Envelope))
 	}
 	return interceptor(ctx, in, info, handler)
 }

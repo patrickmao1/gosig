@@ -37,11 +37,11 @@ message BlockHeader {
 message Envelope {
   bytes sig = 1;
   uint32 validator_index = 2;
-  Message msg = 3;
+  Messages msgs = 3;
 }
 
-message Envelopes {
-  repeated Envelope msgs = 1;
+message Messages {
+  repeated Message msgs = 1;
 }
 
 message Message {

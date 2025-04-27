@@ -17,7 +17,7 @@ func (s *Service) startProcessingMsgs() {
 		msgs := s.inMsgs.DequeueAll() // blocking if no msg
 		for _, msg := range msgs {
 			// TODO maybe parallelize
-			s.handleMessage(msg.Msg)
+			s.handleMessage(msg)
 		}
 	}
 }
@@ -48,12 +48,12 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 	if prop.Round != s.round.Load() {
-		log.Warnf("received proposal for round %d but current round is %d", prop.Round, s.round)
-		return nil
+		return fmt.Errorf("received proposal for round %d but current round is %d",
+			prop.Round, s.round.Load())
 	}
 	if prop.BlockHeader.Height > s.head.Height+1 {
-		log.Warnf("received proposal block (%d) > head block + 1 (%d)", prop.BlockHeader.Height, s.head.Height+1)
-		return nil
+		return fmt.Errorf("received proposal block (%d) > head block + 1 (%d)",
+			prop.BlockHeader.Height, s.head.Height+1)
 	}
 	// check proposal proof
 	if !s.isValidProposal(prop) {
@@ -76,7 +76,8 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 	log.Debugf("handlePrepare %s", incPrep.ToString())
 	if incPrep.Cert.Round != s.round.Load() {
-		log.Warnf("ignoring prepare: prepare.round %d != local round %d", incPrep.Cert.Round, s.round)
+		log.Warnf("ignoring prepare: prepare.round %d != local round %d",
+			incPrep.Cert.Round, s.round.Load())
 		return nil
 	}
 
@@ -98,7 +99,8 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 		myPrep := myPrepMsg.GetPrepare()
 
 		if !bytes.Equal(myPrep.Msg.BlockHash, incPrep.Msg.BlockHash) {
-			return fmt.Errorf("got prepare different from mine: theirs %s, mine %s", incPrep.ToString(), myPrep.ToString())
+			return fmt.Errorf("got prepare different from mine: theirs %s, mine %s",
+				incPrep.ToString(), myPrep.ToString())
 		}
 
 		// Merge prepare with my prepare state of this round
@@ -118,8 +120,9 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 
 		if mergedPrep.Cert.NumSigned() >= s.cfg.Quorum() {
 			log.Debugf("handlePrepare: reached quorum %d/%d", mergedPrep.Cert.NumSigned(), s.cfg.Quorum())
-			// persist the prepare cert because if this block is later TC'd by me but never committed, I'll need to
-			// re-propose this block with its P-cert as the proposal certificate.
+			// persist the prepare cert because if this block is later TC'd by me but never
+			// committed, I'll need to re-propose this block with its P-cert as the proposal certificate.
+			// (the re-propose part is not implemented due to time constraint)
 			err := s.db.PutPCert(mergedPrep.Msg.BlockHash, mergedPrep.Cert)
 			if err != nil {
 				return err
@@ -174,7 +177,8 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 		// enough P sigs to TC myself.
 		myPrepMsg, ok := buf.Get(s.prepareKey())
 		if !ok {
-			return fmt.Errorf("failed to handle TC msg: no prepare found for %s", s.prepareKey())
+			log.Warnf("cannot handle TC msg: prepare (%s) not found yet", s.prepareKey())
+			return nil
 		}
 		myPrep := myPrepMsg.GetPrepare()
 		if !bytes.Equal(myPrep.Msg.BlockHash, incTc.Msg.BlockHash) {

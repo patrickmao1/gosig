@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/blake2b"
@@ -88,7 +89,6 @@ func (s *Service) Start() {
 		/*
 		 * Stage 1: VRF-based Proposal
 		 */
-
 		// initialize round number and seed
 		err := s.initRoundState()
 		if err != nil {
@@ -139,18 +139,7 @@ func (s *Service) initRoundState() error {
 	head, err := s.db.GetHeadBlock()
 	if err != nil && errors.Is(err, leveldb.ErrNotFound) {
 		log.Infof("no head block found, performing genesis")
-		genesisBlock := NewGenesisBlock(s.genesis.InitialSeed)
-		err := s.db.PutBlock(genesisBlock)
-		if err != nil {
-			return err
-		}
-		log.Infof("genesis block saved to db: %s", genesisBlock.ToString())
-		s.genesisBlockHash = genesisBlock.Hash()
-		err = s.db.PutHeadBlock(s.genesisBlockHash)
-		if err != nil {
-			return err
-		}
-		head = genesisBlock
+		head, err = s.doGenesis()
 	} else if err != nil {
 		return err
 	}
@@ -172,8 +161,23 @@ func (s *Service) initRoundState() error {
 	return nil
 }
 
+func (s *Service) doGenesis() (*types.BlockHeader, error) {
+	genesisBlock := NewGenesisBlock(s.genesis.InitialSeed)
+	err := s.db.PutBlock(genesisBlock)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("genesis block saved to db: %s", genesisBlock.ToString())
+	s.genesisBlockHash = genesisBlock.Hash()
+	err = s.db.PutHeadBlock(s.genesisBlockHash)
+	if err != nil {
+		return nil, err
+	}
+	return genesisBlock, nil
+}
+
 func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
-	txs := s.txPool.List(1000)
+	txs := s.txPool.List(35_000)
 	if len(txs) == 0 {
 		log.Debugf("skip proposing: no tx in pool")
 		return nil, nil
@@ -232,6 +236,8 @@ func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
 }
 
 func (s *Service) prepare(blockHash []byte) error {
+	defer utils.LogExecTime(time.Now(), "prepare")
+
 	log.Infof("prepare: block %x", blockHash)
 
 	prep := &types.Prepare{BlockHash: blockHash}
@@ -251,27 +257,30 @@ func (s *Service) prepare(blockHash []byte) error {
 }
 
 func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
+	defer utils.LogExecTime(time.Now(), "tentativeCommit")
+
 	txHashes, err := s.db.GetTxHashes(blockHash)
 	if err != nil {
 		return fmt.Errorf("cannot tc block %x..: txHashes not found", blockHash[:8])
 	}
+	log.Infof("tentativeCommit: block %x", blockHash)
+
 	txs, missingTxs := s.txPool.BatchGet(txHashes.TxHashes)
 	if len(missingTxs) > 0 {
-		txs, err = s.nw.QueryTxs(missingTxs)
+		received, err := s.nw.QueryTxs(missingTxs)
 		if err != nil {
 			return err
 		}
-		err = s.txPool.AddTransactions(txs)
+		err = s.txPool.AddTransactions(received)
 		if err != nil {
 			return err
 		}
+		pass := checkTxs(received)
+		if !pass {
+			return fmt.Errorf("cannot tc block %x..: tx check failed", blockHash[:8])
+		}
+		txs = append(txs, received...)
 	}
-	pass := checkTxs(txs)
-	if !pass {
-		return fmt.Errorf("cannot tc block %x..: tx check failed", blockHash[:8])
-	}
-
-	log.Infof("tentativeCommit: block %x", blockHash)
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
 	cert, err := s.signNewCert(tc)
@@ -291,6 +300,7 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 }
 
 func checkTxs(txs []*types.SignedTransaction) bool {
+	defer utils.LogExecTime(time.Now(), "checkTxs")
 	for _, tx := range txs {
 		bs, err := proto.Marshal(tx.Tx)
 		if err != nil {
@@ -307,6 +317,8 @@ func checkTxs(txs []*types.SignedTransaction) bool {
 }
 
 func (s *Service) commit(blockHash []byte) error {
+	defer utils.LogExecTime(time.Now(), "commit")
+
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 
@@ -345,6 +357,8 @@ func (s *Service) commit(blockHash []byte) error {
 }
 
 func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
+	defer utils.LogExecTime(time.Now(), "commitTxs")
+
 	log.Infof("commit %d txs", len(txs))
 	dbtx, err := s.db.OpenTransaction()
 	if err != nil {

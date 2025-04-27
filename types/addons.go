@@ -108,13 +108,6 @@ func (m *Message) ToString() string {
 	return "<nil>"
 }
 
-func (e *Envelope) ToString() string {
-	if e == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("Envelope(Msg %s)", e.Msg.ToString())
-}
-
 func (p *BlockProposal) Score() uint32 {
 	return crypto.RngFromProof(p.BlockHeader.ProposerProof)
 }

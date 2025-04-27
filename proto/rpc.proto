@@ -12,7 +12,7 @@ service RPC {
     rpc GetBalance(GetBalanceReq) returns (GetBalanceRes);
 
     // Internal RPCs
-    rpc Send(Envelopes) returns (Empty);
+    rpc Send(Envelope) returns (Empty);
     rpc QueryTXs(QueryTXsReq) returns (QueryTXsRes);
 }
 

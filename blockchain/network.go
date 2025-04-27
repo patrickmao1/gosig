@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/stats"
-	"google.golang.org/protobuf/proto"
 	"math/rand"
 	"net"
 	"sync"
@@ -18,11 +17,11 @@ import (
 )
 
 type OutboundMsgPool interface {
-	List() []*types.Envelope
+	Pack() *types.Envelope
 }
 
 type InboundMsgPool interface {
-	Enqueue(msgs []*types.Envelope)
+	Enqueue(msgs *types.Envelope)
 }
 
 type Network struct {
@@ -69,7 +68,8 @@ func (n *Network) dialPeers() {
 	for i, val := range n.peers {
 		dialOpts := []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(256 * 1024 * 1024)),
+			grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(32 * 1024 * 1024)),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(32 * 1024 * 1024)),
 			grpc.WithStatsHandler(n.stats),
 		}
 		cc, err := grpc.NewClient(val.GetURL(), dialOpts...)
@@ -90,18 +90,16 @@ func (n *Network) StartGossip() {
 	for {
 		ts := <-t
 
-		msgs := n.out.List()
+		envelope := n.out.Pack()
 
-		if len(msgs) == 0 {
+		if envelope == nil {
 			continue
 		}
-
-		toSend := &types.Envelopes{Msgs: msgs}
 
 		// send to randomized peers every time
 		targets := pickRandN(n.clients, n.fanout)
 
-		ctx, cancel := context.WithTimeout(context.Background(), n.interval)
+		//ctx, cancel := context.WithTimeout(context.Background(), n.interval)
 		done := make(chan struct{})
 		var wg sync.WaitGroup
 		for _, peer := range targets[:n.fanout] {
@@ -109,7 +107,7 @@ func (n *Network) StartGossip() {
 			client := peer
 			go func() {
 				defer wg.Done()
-				_, err := client.Send(context.Background(), toSend)
+				_, err := client.Send(context.Background(), envelope)
 				if err != nil {
 					log.Errorf("failed to send gossip to peer: %s", err.Error())
 					return
@@ -125,18 +123,18 @@ func (n *Network) StartGossip() {
 		// wait for either all Sends are done or gossip round is over
 		select {
 		case <-done:
-			log.Debugf("gossip round done: sent %d msgs, start_ts %s", len(msgs), ts)
-			cancel()
+			log.Debugf("gossip round done: sent %d msgs, took %s", len(envelope.Msgs.Msgs), time.Since(ts))
+			//cancel()
 			continue
-		case <-ctx.Done():
-			go func() {
-				bs, err := proto.Marshal(toSend)
-				if err != nil {
-					log.Errorf("failed to marshal gossip to peer: %s", err.Error())
-				}
-				log.Infof("gossip round timed out: start_ts %s, %d msgs, %d bytes", ts, len(msgs), len(bs))
-			}()
-			continue
+			//case <-ctx.Done():
+			//	go func() {
+			//		bs, err := proto.Marshal(toSend)
+			//		if err != nil {
+			//			log.Errorf("failed to marshal gossip to peer: %s", err.Error())
+			//		}
+			//		log.Infof("gossip round timed out: start_ts %s, %d msgs, %d bytes", ts, len(msgs), len(bs))
+			//	}()
+			//	continue
 		}
 	}
 }
@@ -145,6 +143,7 @@ func (n *Network) QueryTxs(txHashes [][]byte) ([]*types.SignedTransaction, error
 	tick := time.NewTicker(n.interval)
 
 	m := make(map[[32]byte]*types.SignedTransaction)
+	var mu sync.Mutex
 	for i := 0; i < 10; i++ {
 		<-tick.C
 
@@ -165,7 +164,9 @@ func (n *Network) QueryTxs(txHashes [][]byte) ([]*types.SignedTransaction, error
 				for _, tx := range res.Txs {
 					var h [32]byte
 					copy(h[:], tx.Hash())
+					mu.Lock()
 					m[h] = tx
+					mu.Unlock()
 				}
 			}()
 		}

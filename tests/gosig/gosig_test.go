@@ -8,8 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/syndtr/goleveldb/leveldb"
+	"sync"
 	"testing"
-	"time"
 )
 
 var rpcURLs = []string{
@@ -37,32 +37,60 @@ func Test(t *testing.T) {
 			Nonce:  uint32(i),
 		})
 		require.NoError(t, err)
-		time.Sleep(5 * time.Millisecond)
 	}
+}
 
-	//pass := false
-	//for i := 0; i < 20; i++ {
-	//	time.Sleep(1 * time.Second)
-	//	balance, err := c.GetBalance(pubkeys[0])
-	//	if err != nil {
-	//		return
-	//	}
-	//	log.Infof("balance: %v", balance)
-	//	if balance == 1000-123 {
-	//		pass = true
-	//		break
-	//	}
-	//}
-	//require.True(t, pass)
+func TestParallel(t *testing.T) {
+	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var txs []*types.Transaction
+			for j := 0; j < 500; j++ {
+				txs = append(txs, &types.Transaction{
+					From:   pubkeys[0],
+					To:     pubkeys[1],
+					Amount: 1,
+					Nonce:  uint32(i*500 + j),
+				})
+			}
+			err := c.SubmitTxs(txs)
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestBatch(t *testing.T) {
+	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	var txs []*types.Transaction
+
+	for i := 0; i < 10_000; i++ {
+		txs = append(txs, &types.Transaction{
+			From:   pubkeys[0],
+			To:     pubkeys[1],
+			Amount: 1,
+			Nonce:  uint32(i),
+		})
+	}
+	err := c.SubmitTxs(txs)
+	require.NoError(t, err)
 }
 
 func TestBalance(t *testing.T) {
 	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
-	balance, err := c.GetBalance(pubkeys[0])
+	balance0, err := c.GetBalance(pubkeys[0])
 	if err != nil {
 		return
 	}
-	log.Infof("balance: %v", balance)
+	balance1, err := c.GetBalance(pubkeys[1])
+	if err != nil {
+		return
+	}
+	log.Infof("wallet 0 balance: %d", balance0)
+	log.Infof("wallet 1 balance: %d", balance1)
 }
 
 func TestDB(t *testing.T) {
