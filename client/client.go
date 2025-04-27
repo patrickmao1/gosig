@@ -88,6 +88,7 @@ func (c *Client) SubmitTxs(txs []*types.Transaction) error {
 func (c *Client) GetBalance(pubkey []byte) (uint64, error) {
 	req := &types.GetBalanceReq{Account: pubkey}
 	i := rand.Intn(len(c.clients))
+	log.Infof("getting balance for from node %x", i)
 	res, err := c.clients[i].GetBalance(context.Background(), req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get balance from node %d: %s", i, err.Error())

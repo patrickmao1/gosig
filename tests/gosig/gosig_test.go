@@ -10,6 +10,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"sync"
 	"testing"
+	"time"
 )
 
 var rpcURLs = []string{
@@ -61,6 +62,38 @@ func TestParallel(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestBatch(t *testing.T) {
+	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+
+	tick := time.NewTicker(2000 * time.Millisecond)
+	for i := 0; i < 10; i++ {
+		<-tick.C
+		done := make(chan struct{})
+		timeout := time.After(2000 * time.Millisecond)
+		go func() {
+			var txs []*types.Transaction
+			for j := 0; j < 1000; j++ {
+				txs = append(txs, &types.Transaction{
+					From:   pubkeys[0],
+					To:     pubkeys[1],
+					Amount: 1,
+					Nonce:  uint32(i*1000 + j),
+				})
+			}
+			err := c.SubmitTxs(txs)
+			require.NoError(t, err)
+			done <- struct{}{}
+		}()
+		select {
+		case <-done:
+			continue
+		case <-timeout:
+			log.Infof("timeout")
+			continue
+		}
+	}
 }
 
 func TestBalance(t *testing.T) {
