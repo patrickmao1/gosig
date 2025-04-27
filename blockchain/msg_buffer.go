@@ -3,6 +3,7 @@ package blockchain
 import (
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
@@ -123,6 +124,7 @@ func NewInboundMsgBuffer(vals Validators) *InboundMsgBuffer {
 }
 
 func (b *InboundMsgBuffer) Enqueue(envelope *types.Envelope) {
+	utils.LogExecTime(time.Now(), "Enqueue %d msgs", len(envelope.Msgs.Msgs))
 	ok, err := b.checkSig(envelope)
 	if err != nil {
 		log.Errorf("failed to enqueue: err %s", err.Error())
@@ -137,7 +139,6 @@ func (b *InboundMsgBuffer) Enqueue(envelope *types.Envelope) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.msgs = append(b.msgs, envelope.Msgs.Msgs...)
-	log.Infof("current queue size %d", len(b.msgs))
 	b.hasMsgCond.Signal()
 }
 

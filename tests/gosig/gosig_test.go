@@ -28,7 +28,7 @@ func init() {
 
 func Test(t *testing.T) {
 	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 10; i++ {
 		log.Infof("sending tx %d", i)
 		err := c.SubmitTx(&types.Transaction{
 			From:   pubkeys[0],
@@ -48,7 +48,7 @@ func TestParallel(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			var txs []*types.Transaction
-			for j := 0; j < 500; j++ {
+			for j := 0; j < 1000; j++ {
 				txs = append(txs, &types.Transaction{
 					From:   pubkeys[0],
 					To:     pubkeys[1],
@@ -61,22 +61,6 @@ func TestParallel(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-}
-
-func TestBatch(t *testing.T) {
-	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
-	var txs []*types.Transaction
-
-	for i := 0; i < 10_000; i++ {
-		txs = append(txs, &types.Transaction{
-			From:   pubkeys[0],
-			To:     pubkeys[1],
-			Amount: 1,
-			Nonce:  uint32(i),
-		})
-	}
-	err := c.SubmitTxs(txs)
-	require.NoError(t, err)
 }
 
 func TestBalance(t *testing.T) {

@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/protobuf/proto"
+	"time"
 )
 
 func (s *Service) startProcessingMsgs() {
@@ -44,6 +46,7 @@ func (s *Service) handleMessage(msg *types.Message) {
 }
 
 func (s *Service) handleProposal(prop *types.BlockProposal) error {
+	defer utils.LogExecTime(time.Now(), "handleProposal")
 	log.Debugf("handleProposal: block hash %x.., block %s", prop.BlockHeader.Hash()[:8], prop.ToString())
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
@@ -74,6 +77,7 @@ func (s *Service) handleProposal(prop *types.BlockProposal) error {
 }
 
 func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
+	defer utils.LogExecTime(time.Now(), "handlePrepare")
 	log.Debugf("handlePrepare %s", incPrep.ToString())
 	if incPrep.Cert.Round != s.round.Load() {
 		log.Warnf("ignoring prepare: prepare.round %d != local round %d",
@@ -157,6 +161,7 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 }
 
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
+	defer utils.LogExecTime(time.Now(), "handleTC")
 	log.Debugf("handleTC %s", incTc.ToString())
 	// merge tc with my tc of this round
 	if incTc.Cert.Round != s.round.Load() {
@@ -221,6 +226,7 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 }
 
 func (s *Service) handleTxHashes(txHashes *types.TransactionHashes) error {
+	defer utils.LogExecTime(time.Now(), "handleTxHashes")
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
 

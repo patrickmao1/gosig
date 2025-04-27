@@ -11,7 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/blake2b"
-	"google.golang.org/protobuf/proto"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -156,7 +155,7 @@ func (s *Service) initRoundState() error {
 	binary.BigEndian.PutUint32(b, s.round.Load())
 	s.rseed = slices.Concat(b, seed[:])
 
-	log.Infof("new round %d, head %x, rseed %x", s.round.Load(), s.head.Hash(), s.rseed)
+	log.Infof("new round %d, head %x..", s.round.Load(), s.head.Hash()[:8])
 
 	return nil
 }
@@ -236,8 +235,6 @@ func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
 }
 
 func (s *Service) prepare(blockHash []byte) error {
-	defer utils.LogExecTime(time.Now(), "prepare")
-
 	log.Infof("prepare: block %x", blockHash)
 
 	prep := &types.Prepare{BlockHash: blockHash}
@@ -257,8 +254,6 @@ func (s *Service) prepare(blockHash []byte) error {
 }
 
 func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
-	defer utils.LogExecTime(time.Now(), "tentativeCommit")
-
 	txHashes, err := s.db.GetTxHashes(blockHash)
 	if err != nil {
 		return fmt.Errorf("cannot tc block %x..: txHashes not found", blockHash[:8])
@@ -267,6 +262,8 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 
 	txs, missingTxs := s.txPool.BatchGet(txHashes.TxHashes)
 	if len(missingTxs) > 0 {
+		before := time.Now()
+		log.Warnf("tentativeCommit: missing %d txs, fetching from peers", len(missingTxs))
 		received, err := s.nw.QueryTxs(missingTxs)
 		if err != nil {
 			return err
@@ -275,11 +272,8 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 		if err != nil {
 			return err
 		}
-		pass := checkTxs(received)
-		if !pass {
-			return fmt.Errorf("cannot tc block %x..: tx check failed", blockHash[:8])
-		}
 		txs = append(txs, received...)
+		log.Infof("tentativeCommit: fetching missing txs took %s", time.Since(before))
 	}
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
@@ -299,29 +293,11 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 	return s.db.PutTcCert(blockHash, cert)
 }
 
-func checkTxs(txs []*types.SignedTransaction) bool {
-	defer utils.LogExecTime(time.Now(), "checkTxs")
-	for _, tx := range txs {
-		bs, err := proto.Marshal(tx.Tx)
-		if err != nil {
-			log.Error(err)
-			return false
-		}
-		pass := crypto.VerifySigBytes(tx.Tx.From, bs, tx.Sig)
-		if !pass {
-			log.Errorf("tx %s invalid signature", tx.ToString())
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Service) commit(blockHash []byte) error {
-	defer utils.LogExecTime(time.Now(), "commit")
-
 	s.rmu.Lock()
 	defer s.rmu.Unlock()
 
+	// Check if I have already committed the block
 	head, err := s.db.Get(headKey, nil)
 	if err != nil {
 		return fmt.Errorf("commit: failed to get head block: %s", err.Error())
@@ -329,8 +305,10 @@ func (s *Service) commit(blockHash []byte) error {
 	if bytes.Equal(head, blockHash) {
 		return nil
 	}
-	log.Infof("commit block %x", blockHash)
 
+	defer utils.LogExecTime(time.Now(), "commit")
+
+	log.Infof("commit block %x", blockHash)
 	err = s.db.PutHeadBlock(blockHash)
 	if err != nil {
 		return err
@@ -357,8 +335,6 @@ func (s *Service) commit(blockHash []byte) error {
 }
 
 func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
-	defer utils.LogExecTime(time.Now(), "commitTxs")
-
 	log.Infof("commit %d txs", len(txs))
 	dbtx, err := s.db.OpenTransaction()
 	if err != nil {

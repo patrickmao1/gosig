@@ -56,7 +56,7 @@ func (s *Service) GetBalance(ctx context.Context, req *types.GetBalanceReq) (*ty
 }
 
 func (s *Service) Send(ctx context.Context, req *types.Envelope) (*types.Empty, error) {
-	s.inMsgs.Enqueue(req)
+	go s.inMsgs.Enqueue(req)
 	return &types.Empty{}, nil
 }
 

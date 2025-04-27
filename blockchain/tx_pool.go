@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
+	"time"
 )
 
 type TxPool struct {
@@ -25,10 +27,8 @@ func NewTxPool() *TxPool {
 
 func (p *TxPool) CleanRecentlyDeleted() {
 	p.mu2.Lock()
-	count := len(p.recentlyDeleted)
 	p.recentlyDeleted = make(map[[32]byte]struct{})
 	p.mu2.Unlock()
-	log.Infof("cleaned recently deleted tx cache, count: %d", count)
 }
 
 func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
@@ -59,6 +59,10 @@ func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
 func (p *TxPool) AddTransactions(txs []*types.SignedTransaction) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	pass := checkTxs(txs)
+	if !pass {
+		return fmt.Errorf("tx check failed")
+	}
 	for _, tx := range txs {
 		var txHash [32]byte
 		copy(txHash[:], tx.Tx.Hash())
@@ -113,4 +117,21 @@ func (p *TxPool) BatchDelete(txHashes [][]byte) {
 		p.recentlyDeleted[key] = struct{}{}
 	}
 	log.Infof("deleted %d tx hashes", len(txHashes))
+}
+
+func checkTxs(txs []*types.SignedTransaction) bool {
+	defer utils.LogExecTime(time.Now(), "checkTxs")
+	for _, tx := range txs {
+		bs, err := proto.Marshal(tx.Tx)
+		if err != nil {
+			log.Error(err)
+			return false
+		}
+		pass := crypto.VerifySigBytes(tx.Tx.From, bs, tx.Sig)
+		if !pass {
+			log.Errorf("tx %s invalid signature", tx.ToString())
+			return false
+		}
+	}
+	return true
 }
