@@ -10,17 +10,37 @@ import (
 )
 
 type TxPool struct {
-	mu  sync.Mutex
-	txs map[[32]byte]*types.SignedTransaction
+	txs             map[[32]byte]*types.SignedTransaction
+	mu              sync.RWMutex
+	recentlyDeleted map[[32]byte]struct{}
+	mu2             sync.RWMutex
 }
 
 func NewTxPool() *TxPool {
 	return &TxPool{
-		txs: make(map[[32]byte]*types.SignedTransaction),
+		txs:             make(map[[32]byte]*types.SignedTransaction),
+		recentlyDeleted: make(map[[32]byte]struct{}),
 	}
 }
 
+func (p *TxPool) CleanRecentlyDeleted() {
+	p.mu2.Lock()
+	count := len(p.recentlyDeleted)
+	p.recentlyDeleted = make(map[[32]byte]struct{})
+	p.mu2.Unlock()
+	log.Infof("cleaned recently deleted tx cache, count: %d", count)
+}
+
 func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
+	var txHash [32]byte
+	copy(txHash[:], tx.Tx.Hash())
+
+	p.mu2.RLock()
+	defer p.mu2.RUnlock()
+	if _, ok := p.recentlyDeleted[txHash]; ok {
+		return nil
+	}
+
 	txBytes, err := proto.Marshal(tx.Tx)
 	if err != nil {
 		return err
@@ -28,9 +48,6 @@ func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
 	if !crypto.VerifySigBytes(tx.Tx.From, txBytes, tx.Sig) {
 		return fmt.Errorf("invalid sig")
 	}
-
-	var txHash [32]byte
-	copy(txHash[:], tx.Tx.Hash())
 
 	p.mu.Lock()
 	p.txs[txHash] = tx
@@ -40,32 +57,19 @@ func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
 }
 
 func (p *TxPool) AddTransactions(txs []*types.SignedTransaction) error {
-	for _, tx := range txs {
-		txBytes, err := proto.Marshal(tx.Tx)
-		if err != nil {
-			return err
-		}
-		if !crypto.VerifySigBytes(tx.Tx.From, txBytes, tx.Sig) {
-			return fmt.Errorf("invalid sig")
-		}
-	}
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	for _, tx := range txs {
 		var txHash [32]byte
 		copy(txHash[:], tx.Tx.Hash())
-
 		p.txs[txHash] = tx
 	}
-
 	return nil
 }
 
 func (p *TxPool) List(n int) []*types.SignedTransaction {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
 	var ret []*types.SignedTransaction
 	count := 0
@@ -79,31 +83,34 @@ func (p *TxPool) List(n int) []*types.SignedTransaction {
 	return ret
 }
 
-func (p *TxPool) BatchGet(txHashes [][]byte) ([]*types.SignedTransaction, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *TxPool) BatchGet(txHashes [][]byte) (found []*types.SignedTransaction, missing [][]byte) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-	var ret []*types.SignedTransaction
 	for _, hash := range txHashes {
 		var key [32]byte
 		copy(key[:], hash)
 		tx, ok := p.txs[key]
-		if !ok {
-			return nil, fmt.Errorf("tx %x not found in tx pool", key)
+		if ok {
+			found = append(found, tx)
+		} else {
+			missing = append(missing, hash)
 		}
-		ret = append(ret, tx)
 	}
-	return ret, nil
+	return
 }
 
 func (p *TxPool) BatchDelete(txHashes [][]byte) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.mu2.Lock()
+	defer p.mu2.Unlock()
 
 	for _, hash := range txHashes {
 		var key [32]byte
 		copy(key[:], hash)
 		delete(p.txs, key)
+		p.recentlyDeleted[key] = struct{}{}
 	}
 	log.Infof("deleted %d tx hashes", len(txHashes))
 }

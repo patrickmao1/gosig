@@ -10,6 +10,7 @@ message Transaction {
   bytes from = 1;
   bytes to = 2;
   uint64 amount = 3;
+  uint32 nonce = 4;
 }
 
 message SignedTransaction {
@@ -39,6 +40,10 @@ message Envelope {
   Message msg = 3;
 }
 
+message Envelopes {
+  repeated Envelope msgs = 1;
+}
+
 message Message {
   oneof message {
     bytes bytes = 1; // arbitrary bytes for testing purpose
@@ -50,9 +55,6 @@ message Message {
   }
 }
 
-message Envelopes {
-  repeated Envelope msgs = 1;
-}
 
 message BlockProposal {
   uint32 round = 1;

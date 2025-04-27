@@ -19,16 +19,23 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RPC_SubmitTransaction_FullMethodName = "/gosig.RPC/SubmitTransaction"
-	RPC_GetBalance_FullMethodName        = "/gosig.RPC/GetBalance"
+	RPC_SubmitTransaction_FullMethodName  = "/gosig.RPC/SubmitTransaction"
+	RPC_SubmitTransactions_FullMethodName = "/gosig.RPC/SubmitTransactions"
+	RPC_GetBalance_FullMethodName         = "/gosig.RPC/GetBalance"
+	RPC_Send_FullMethodName               = "/gosig.RPC/Send"
+	RPC_QueryTXs_FullMethodName           = "/gosig.RPC/QueryTXs"
 )
 
 // RPCClient is the client API for RPC service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RPCClient interface {
-	SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*SubmitTransactionRes, error)
+	SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*Empty, error)
+	SubmitTransactions(ctx context.Context, in *SubmitTransactionsReq, opts ...grpc.CallOption) (*Empty, error)
 	GetBalance(ctx context.Context, in *GetBalanceReq, opts ...grpc.CallOption) (*GetBalanceRes, error)
+	// Internal RPCs
+	Send(ctx context.Context, in *Envelopes, opts ...grpc.CallOption) (*Empty, error)
+	QueryTXs(ctx context.Context, in *QueryTXsReq, opts ...grpc.CallOption) (*QueryTXsRes, error)
 }
 
 type rPCClient struct {
@@ -39,10 +46,20 @@ func NewRPCClient(cc grpc.ClientConnInterface) RPCClient {
 	return &rPCClient{cc}
 }
 
-func (c *rPCClient) SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*SubmitTransactionRes, error) {
+func (c *rPCClient) SubmitTransaction(ctx context.Context, in *SubmitTransactionReq, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SubmitTransactionRes)
+	out := new(Empty)
 	err := c.cc.Invoke(ctx, RPC_SubmitTransaction_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rPCClient) SubmitTransactions(ctx context.Context, in *SubmitTransactionsReq, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, RPC_SubmitTransactions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -59,12 +76,36 @@ func (c *rPCClient) GetBalance(ctx context.Context, in *GetBalanceReq, opts ...g
 	return out, nil
 }
 
+func (c *rPCClient) Send(ctx context.Context, in *Envelopes, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, RPC_Send_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rPCClient) QueryTXs(ctx context.Context, in *QueryTXsReq, opts ...grpc.CallOption) (*QueryTXsRes, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryTXsRes)
+	err := c.cc.Invoke(ctx, RPC_QueryTXs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RPCServer is the server API for RPC service.
 // All implementations should embed UnimplementedRPCServer
 // for forward compatibility.
 type RPCServer interface {
-	SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error)
+	SubmitTransaction(context.Context, *SubmitTransactionReq) (*Empty, error)
+	SubmitTransactions(context.Context, *SubmitTransactionsReq) (*Empty, error)
 	GetBalance(context.Context, *GetBalanceReq) (*GetBalanceRes, error)
+	// Internal RPCs
+	Send(context.Context, *Envelopes) (*Empty, error)
+	QueryTXs(context.Context, *QueryTXsReq) (*QueryTXsRes, error)
 }
 
 // UnimplementedRPCServer should be embedded to have
@@ -74,11 +115,20 @@ type RPCServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRPCServer struct{}
 
-func (UnimplementedRPCServer) SubmitTransaction(context.Context, *SubmitTransactionReq) (*SubmitTransactionRes, error) {
+func (UnimplementedRPCServer) SubmitTransaction(context.Context, *SubmitTransactionReq) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitTransaction not implemented")
+}
+func (UnimplementedRPCServer) SubmitTransactions(context.Context, *SubmitTransactionsReq) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitTransactions not implemented")
 }
 func (UnimplementedRPCServer) GetBalance(context.Context, *GetBalanceReq) (*GetBalanceRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBalance not implemented")
+}
+func (UnimplementedRPCServer) Send(context.Context, *Envelopes) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Send not implemented")
+}
+func (UnimplementedRPCServer) QueryTXs(context.Context, *QueryTXsReq) (*QueryTXsRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryTXs not implemented")
 }
 func (UnimplementedRPCServer) testEmbeddedByValue() {}
 
@@ -118,6 +168,24 @@ func _RPC_SubmitTransaction_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RPC_SubmitTransactions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitTransactionsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RPCServer).SubmitTransactions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RPC_SubmitTransactions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RPCServer).SubmitTransactions(ctx, req.(*SubmitTransactionsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RPC_GetBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetBalanceReq)
 	if err := dec(in); err != nil {
@@ -136,6 +204,42 @@ func _RPC_GetBalance_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RPC_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Envelopes)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RPCServer).Send(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RPC_Send_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RPCServer).Send(ctx, req.(*Envelopes))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RPC_QueryTXs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryTXsReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RPCServer).QueryTXs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RPC_QueryTXs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RPCServer).QueryTXs(ctx, req.(*QueryTXsReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RPC_ServiceDesc is the grpc.ServiceDesc for RPC service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -148,8 +252,20 @@ var RPC_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RPC_SubmitTransaction_Handler,
 		},
 		{
+			MethodName: "SubmitTransactions",
+			Handler:    _RPC_SubmitTransactions_Handler,
+		},
+		{
 			MethodName: "GetBalance",
 			Handler:    _RPC_GetBalance_Handler,
+		},
+		{
+			MethodName: "Send",
+			Handler:    _RPC_Send_Handler,
+		},
+		{
+			MethodName: "QueryTXs",
+			Handler:    _RPC_QueryTXs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

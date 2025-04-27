@@ -33,7 +33,8 @@ func (tx *Transaction) ToString() string {
 	if tx == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("Transaction(hash %x.., From %x.., To %x.., Amount %d)", tx.Hash()[:8], tx.From[:8], tx.To[:8], tx.Amount)
+	return fmt.Sprintf("Transaction(hash %x.., Nonce %d, From %x.., To %x.., Amount %d)",
+		tx.Hash()[:8], tx.Nonce, tx.From[:8], tx.To[:8], tx.Amount)
 }
 
 func (txs *TransactionHashes) Root() []byte {
@@ -42,6 +43,13 @@ func (txs *TransactionHashes) Root() []byte {
 	}
 	root := blake2b.Sum256(slices.Concat(txs.TxHashes...))
 	return root[:]
+}
+
+func (txs *TransactionHashes) ToString() string {
+	if txs == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TransactionHashes(<root> %x.., <count> %d)", txs.Root()[:8], len(txs.TxHashes))
 }
 
 func (h *BlockHeader) Hash() []byte {
@@ -90,10 +98,21 @@ func (m *Message) ToString() string {
 		return m.GetPrepare().ToString()
 	case *Message_Tc:
 		return m.GetTc().ToString()
+	case *Message_TxHashes:
+		return m.GetTxHashes().ToString()
+	case *Message_Tx:
+		return m.GetTx().ToString()
 	default:
 		log.Panic("Unknown Message type %T", m.Message)
 	}
 	return "<nil>"
+}
+
+func (e *Envelope) ToString() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("Envelope(Msg %s)", e.Msg.ToString())
 }
 
 func (p *BlockProposal) Score() uint32 {

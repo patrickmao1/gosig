@@ -57,6 +57,34 @@ func (c *Client) SubmitTx(tx *types.Transaction) error {
 	return nil
 }
 
+func (c *Client) SubmitTxs(txs []*types.Transaction) error {
+	signedTxs := make([]*types.SignedTransaction, len(txs))
+	for i, tx := range txs {
+		bs, err := proto.Marshal(tx)
+		if err != nil {
+			return err
+		}
+		sig := crypto.SignBytes(c.privkey, bs)
+		signedTx := &types.SignedTransaction{
+			Tx:  tx,
+			Sig: sig,
+		}
+		pass := crypto.VerifySigBytes(c.pubkey, bs, sig)
+		if !pass {
+			panic("failed to verify my own signature")
+		}
+		signedTxs[i] = signedTx
+	}
+	req := &types.SubmitTransactionsReq{Txs: signedTxs}
+
+	i := rand.Intn(len(c.clients))
+	_, err := c.clients[i].SubmitTransactions(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("failed to submit transaction to node %d: %s", i, err.Error())
+	}
+	return nil
+}
+
 func (c *Client) GetBalance(pubkey []byte) (uint64, error) {
 	req := &types.GetBalanceReq{Account: pubkey}
 	i := rand.Intn(len(c.clients))

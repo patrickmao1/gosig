@@ -17,15 +17,14 @@ func (s *Service) startProcessingMsgs() {
 		msgs := s.inMsgs.DequeueAll() // blocking if no msg
 		for _, msg := range msgs {
 			// TODO maybe parallelize
-			s.handleMessage(msg)
+			s.handleMessage(msg.Msg)
 		}
 	}
 }
 
-func (s *Service) handleMessage(signedMsg *types.Envelope) {
-	msg := signedMsg.Msg
+func (s *Service) handleMessage(msg *types.Message) {
 	var err error
-	switch signedMsg.Msg.Message.(type) {
+	switch msg.Message.(type) {
 	case *types.Message_Proposal:
 		err = s.handleProposal(msg.GetProposal())
 	case *types.Message_Prepare:
@@ -37,7 +36,7 @@ func (s *Service) handleMessage(signedMsg *types.Envelope) {
 	case *types.Message_Tx:
 		err = s.handleTransaction(msg.GetTx())
 	default:
-		err = fmt.Errorf("handleMessage: unknown message type. msg %v", signedMsg)
+		err = fmt.Errorf("handleMessage: unknown message type. msg %+v", msg)
 	}
 	if err != nil {
 		log.Errorf("handleMessage %s err: %s", msg.ToString(), err.Error())
@@ -220,6 +219,10 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 func (s *Service) handleTxHashes(txHashes *types.TransactionHashes) error {
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
+
+	if s.minProposal == nil {
+		return fmt.Errorf("handleTxHashes: no min proposal found for round %d", s.round.Load())
+	}
 
 	expected := s.minProposal.BlockHeader.TxRoot
 	received := txHashes.Root()

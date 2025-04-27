@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
+	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
@@ -122,6 +123,8 @@ func NewInboundMsgBuffer(vals Validators) *InboundMsgBuffer {
 }
 
 func (b *InboundMsgBuffer) Enqueue(msgs []*types.Envelope) {
+	defer utils.LogExecTime(time.Now(), "Enqueue")
+
 	var signedMsgs []*types.Envelope
 	for _, msg := range msgs {
 		ok, err := b.checkSig(msg)

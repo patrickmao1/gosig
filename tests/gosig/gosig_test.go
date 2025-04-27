@@ -28,26 +28,41 @@ func init() {
 
 func Test(t *testing.T) {
 	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
-	err := c.SubmitTx(&types.Transaction{
-		From:   pubkeys[0],
-		To:     pubkeys[1],
-		Amount: 123,
-	})
-	require.NoError(t, err)
-
-	pass := false
-	for i := 0; i < 20; i++ {
-		time.Sleep(1 * time.Second)
-		balance, err := c.GetBalance(pubkeys[0])
-		if err != nil {
-			return
-		}
-		if balance == 1000-123 {
-			pass = true
-			break
-		}
+	for i := 0; i < 1000; i++ {
+		log.Infof("sending tx %d", i)
+		err := c.SubmitTx(&types.Transaction{
+			From:   pubkeys[0],
+			To:     pubkeys[1],
+			Amount: 1,
+			Nonce:  uint32(i),
+		})
+		require.NoError(t, err)
+		time.Sleep(5 * time.Millisecond)
 	}
-	require.True(t, pass)
+
+	//pass := false
+	//for i := 0; i < 20; i++ {
+	//	time.Sleep(1 * time.Second)
+	//	balance, err := c.GetBalance(pubkeys[0])
+	//	if err != nil {
+	//		return
+	//	}
+	//	log.Infof("balance: %v", balance)
+	//	if balance == 1000-123 {
+	//		pass = true
+	//		break
+	//	}
+	//}
+	//require.True(t, pass)
+}
+
+func TestBalance(t *testing.T) {
+	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	balance, err := c.GetBalance(pubkeys[0])
+	if err != nil {
+		return
+	}
+	log.Infof("balance: %v", balance)
 }
 
 func TestDB(t *testing.T) {

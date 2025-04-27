@@ -142,7 +142,7 @@ func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 	cfg := NodeConfig{
 		DbPath:            "/app/runtime/gosig.db",
 		ProposalThreshold: computeThreshold(len(nodes)),
-		GossipIntervalMs:  300,
+		GossipIntervalMs:  500,
 		GossipDegree:      2,
 		GossipDurationMs:  4000,
 

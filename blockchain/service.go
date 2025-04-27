@@ -159,6 +159,8 @@ func (s *Service) initRoundState() error {
 	s.head = head
 	s.minProposal = nil
 
+	s.txPool.CleanRecentlyDeleted()
+
 	// compute the seed for the round
 	seed := blake2b.Sum256(head.ProposerProof)
 	b := make([]byte, 4)
@@ -171,6 +173,13 @@ func (s *Service) initRoundState() error {
 }
 
 func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
+	txs := s.txPool.List(1000)
+	if len(txs) == 0 {
+		log.Debugf("skip proposing: no tx in pool")
+		return nil, nil
+	}
+	log.Infof("round %d tx in pool: %d", s.round.Load(), len(txs))
+
 	// determine if I should propose
 	proposalScore, proposerProof := crypto.VRF(s.cfg.MyPrivKey(), s.rseed) // L^r = SIG_{l^h}(r^h,Q^{h-1})
 	log.WithField("round", s.round.Load()).
@@ -188,12 +197,6 @@ func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
 		Height:        s.head.Height + 1,
 		ParentHash:    headHash,
 		ProposerProof: proposerProof,
-	}
-
-	txs := s.txPool.List(100)
-	if len(txs) == 0 {
-		log.Debugf("skip proposing: no tx in pool")
-		return nil, nil
 	}
 
 	var cert *types.Certificate
@@ -250,11 +253,18 @@ func (s *Service) prepare(blockHash []byte) error {
 func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
 	txHashes, err := s.db.GetTxHashes(blockHash)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot tc block %x..: txHashes not found", blockHash[:8])
 	}
-	txs, err := s.txPool.BatchGet(txHashes.TxHashes)
-	if err != nil {
-		return err
+	txs, missingTxs := s.txPool.BatchGet(txHashes.TxHashes)
+	if len(missingTxs) > 0 {
+		txs, err = s.nw.QueryTxs(missingTxs)
+		if err != nil {
+			return err
+		}
+		err = s.txPool.AddTransactions(txs)
+		if err != nil {
+			return err
+		}
 	}
 	pass := checkTxs(txs)
 	if !pass {
@@ -315,31 +325,16 @@ func (s *Service) commit(blockHash []byte) error {
 	}
 
 	var txHashes *types.TransactionHashes
-	//for i := 0; txHashes == nil && i < 10; i++ {
-	//	txHashes, err = s.db.GetTxHashes(blockHash)
-	//	if err != nil {
-	//		log.Warnf("commit: get txhashes for block %x..: %s, attempt %d/10", blockHash[:8], err.Error(), i+1)
-	//		time.Sleep(s.cfg.GossipInterval())
-	//		continue
-	//	}
-	//	txs, err := s.txPool.BatchGet(txHashes.TxHashes)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	err = s.commitTxs(txs)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	s.txPool.BatchDelete(txHashes.TxHashes)
-	//	return nil
-	//}
+
 	txHashes, err = s.db.GetTxHashes(blockHash)
 	if err != nil {
 		return fmt.Errorf("commit: get txhashes for block %x..: %s", blockHash[:8], err.Error())
 	}
-	txs, err := s.txPool.BatchGet(txHashes.TxHashes)
-	if err != nil {
-		return err
+	txs, missing := s.txPool.BatchGet(txHashes.TxHashes)
+	if len(missing) > 0 {
+		// Sanity check: if I TC'd the block then it means I have checked all txs. There should be no missing txs
+		log.Panicf("commit: block %x.., should have %d txs but %d txs are still missing!",
+			blockHash[:8], len(txHashes.TxHashes), len(missing))
 	}
 	err = s.commitTxs(txs)
 	if err != nil {
@@ -347,7 +342,6 @@ func (s *Service) commit(blockHash []byte) error {
 	}
 	s.txPool.BatchDelete(txHashes.TxHashes)
 	return nil
-	//return fmt.Errorf("commit: failed to get txhashes for block %x.. after 10 attempts", blockHash[:8])
 }
 
 func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
@@ -356,43 +350,50 @@ func (s *Service) commitTxs(txs []*types.SignedTransaction) error {
 		return err
 	}
 
-	batch := new(leveldb.Batch)
+	balances := make(map[string]uint64)
+
+	// populate current state first
 	for _, tx := range txs {
-		senderKey, recipientKey := accountKey(tx.Tx.From), accountKey(tx.Tx.To)
-
-		from, err := dbtx.Get(senderKey, nil)
+		senderKey, receiverKey := accountKey(tx.Tx.From), accountKey(tx.Tx.To)
+		senderBal, err := dbtx.Get(senderKey, nil)
 		if err != nil && errors.Is(err, leveldb.ErrNotFound) {
-			from = make([]byte, 8)
-		} else if err != nil {
-			dbtx.Discard()
-			return fmt.Errorf("commitTxs: failed to get sender from db: %s", err.Error())
+			senderBal = make([]byte, 8)
+		} else {
+			return err
 		}
+		senderBalance := binary.BigEndian.Uint64(senderBal)
+		balances[string(senderKey)] = senderBalance
 
-		to, err := dbtx.Get(recipientKey, nil)
+		receiverBal, err := dbtx.Get(receiverKey, nil)
 		if err != nil && errors.Is(err, leveldb.ErrNotFound) {
-			to = make([]byte, 8)
-		} else if err != nil {
-			dbtx.Discard()
-			return fmt.Errorf("commitTxs: failed to get recipient from db: %s", err.Error())
+			receiverBal = make([]byte, 8)
+		} else {
+			return err
 		}
-
-		senderBalance := binary.BigEndian.Uint64(from)
-		recipientBalance := binary.BigEndian.Uint64(to)
-
-		if senderBalance < tx.Tx.Amount {
-			dbtx.Discard()
-			return fmt.Errorf("sender balance %d < send amount %d", senderBalance, tx.Tx.Amount)
-		}
-
-		senderBalance -= tx.Tx.Amount
-		recipientBalance += tx.Tx.Amount
-
-		binary.BigEndian.PutUint64(from, senderBalance)
-		binary.BigEndian.PutUint64(to, recipientBalance)
-
-		batch.Put(senderKey, from)
-		batch.Put(recipientKey, to)
+		receiverBalance := binary.BigEndian.Uint64(receiverBal)
+		balances[string(receiverKey)] = receiverBalance
 	}
+
+	// apply changes to state
+	for _, tx := range txs {
+		senderKey, receiverKey := accountKey(tx.Tx.From), accountKey(tx.Tx.To)
+		if balances[string(senderKey)] < tx.Tx.Amount {
+			// sanity check: this should already be checked before TC
+			dbtx.Discard()
+			return fmt.Errorf("sender balance %d < send amount %d", balances[string(senderKey)], tx.Tx.Amount)
+		}
+		balances[string(senderKey)] -= tx.Tx.Amount
+		balances[string(receiverKey)] += tx.Tx.Amount
+	}
+
+	// save new state to db
+	batch := new(leveldb.Batch)
+	for key, bal := range balances {
+		bs := make([]byte, 8)
+		binary.BigEndian.PutUint64(bs, bal)
+		batch.Put([]byte(key), bs)
+	}
+
 	err = dbtx.Write(batch, nil)
 	if err != nil {
 		dbtx.Discard()
