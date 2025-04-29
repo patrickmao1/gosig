@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
-	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"golang.org/x/crypto/blake2b"
@@ -155,7 +154,7 @@ func (s *Service) initRoundState() error {
 	binary.BigEndian.PutUint32(b, s.round.Load())
 	s.rseed = slices.Concat(b, seed[:])
 
-	log.Infof("new round %d, head %x..", s.round.Load(), s.head.Hash()[:8])
+	log.Infof("new round %d, current head block height %d", s.round.Load(), s.head.Height)
 
 	return nil
 }
@@ -256,7 +255,8 @@ func (s *Service) prepare(blockHash []byte) error {
 func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) error {
 	txHashes, err := s.db.GetTxHashes(blockHash)
 	if err != nil {
-		return fmt.Errorf("cannot tc block %x..: txHashes not found", blockHash[:8])
+		log.Warnf("cannot tc block %x..: txHashes not found", blockHash[:8])
+		return nil
 	}
 	log.Infof("tentativeCommit: block %x", blockHash)
 
@@ -275,6 +275,11 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 		txs = append(txs, received...)
 		log.Infof("tentativeCommit: fetching missing txs took %s", time.Since(before))
 	}
+
+	//pass := checkTxs(txs)
+	//if !pass {
+	//	return fmt.Errorf("tx check failed")
+	//}
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
 	cert, err := s.signNewCert(tc)
@@ -305,8 +310,6 @@ func (s *Service) commit(blockHash []byte) error {
 	if bytes.Equal(head, blockHash) {
 		return nil
 	}
-
-	defer utils.LogExecTime(time.Now(), "commit")
 
 	log.Infof("commit block %x", blockHash)
 	err = s.db.PutHeadBlock(blockHash)

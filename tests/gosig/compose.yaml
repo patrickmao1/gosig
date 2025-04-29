@@ -6,6 +6,7 @@ services:
       - ./tests/gosig/docker_volumes/node1:/app/runtime
     ports:
       - 8081:8080
+      - 6060:6060
     environment:
       node_index: 0
     networks:

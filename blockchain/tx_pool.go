@@ -1,7 +1,6 @@
 package blockchain
 
 import (
-	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	"github.com/patrickmao1/gosig/utils"
@@ -41,14 +40,6 @@ func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
 		return nil
 	}
 
-	txBytes, err := proto.Marshal(tx.Tx)
-	if err != nil {
-		return err
-	}
-	if !crypto.VerifySigBytes(tx.Tx.From, txBytes, tx.Sig) {
-		return fmt.Errorf("invalid sig")
-	}
-
 	p.mu.Lock()
 	p.txs[txHash] = tx
 	p.mu.Unlock()
@@ -59,10 +50,6 @@ func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
 func (p *TxPool) AddTransactions(txs []*types.SignedTransaction) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	pass := checkTxs(txs)
-	if !pass {
-		return fmt.Errorf("tx check failed")
-	}
 	for _, tx := range txs {
 		var txHash [32]byte
 		copy(txHash[:], tx.Tx.Hash())
@@ -120,7 +107,7 @@ func (p *TxPool) BatchDelete(txHashes [][]byte) {
 }
 
 func checkTxs(txs []*types.SignedTransaction) bool {
-	defer utils.LogExecTime(time.Now(), "checkTxs")
+	utils.LogExecTime(time.Now(), "checkTxs", len(txs))
 	for _, tx := range txs {
 		bs, err := proto.Marshal(tx.Tx)
 		if err != nil {

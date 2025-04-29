@@ -135,14 +135,9 @@ func (b *OutboundMsgBuffer) Pack() *types.Envelope {
 		return nil
 	}
 
-	const limit = 100
-
 	msgs := &types.Messages{}
 
 	for id, msg := range b.msgs {
-		//if len(msgs.Msgs) >= limit {
-		//	break
-		//}
 		now := time.Now()
 		if b.deleteDDL[id].Before(now) {
 			delete(b.msgs, id)

@@ -1,4 +1,5 @@
-protogen:
+.PHONY: proto
+proto:
 	protoc -I proto/ \
 		--go_out=./ \
 		--go-grpc_out=require_unimplemented_servers=false:./ \
@@ -7,12 +8,16 @@ protogen:
 test_network_up:
 	docker compose -f ./tests/network/compose.yaml --project-directory . up --build -d
 
-gosig_up:
+down:
+	docker compose -f tests/gosig/compose.yaml --project-directory . down
+
+up: down
 	docker compose -f tests/gosig/compose.yaml --project-directory . up --build -d
 	docker compose -f tests/gosig/compose.yaml --project-directory . logs -f
 
-gosig_down:
-	docker compose -f tests/gosig/compose.yaml --project-directory . down
+prof:
+	go tool pprof -http=localhost:8000 "http://localhost:6060/debug/pprof/profile?seconds=30"
 
 config:
 	go run ./cmd/config_gen/main.go
+

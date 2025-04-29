@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
-	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/protobuf/proto"
-	"time"
 )
 
 func (s *Service) startProcessingMsgs() {
@@ -159,7 +157,6 @@ func (s *Service) handlePrepare(incPrep *types.PrepareCertificate) error {
 }
 
 func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
-	defer utils.LogExecTime(time.Now(), "handleTC")
 	log.Debugf("handleTC %s", incTc.ToString())
 	// merge tc with my tc of this round
 	if incTc.Cert.Round != s.round.Load() {
@@ -224,7 +221,6 @@ func (s *Service) handleTC(incTc *types.TentativeCommitCertificate) error {
 }
 
 func (s *Service) handleTxHashes(txHashes *types.TransactionHashes) error {
-	defer utils.LogExecTime(time.Now(), "handleTxHashes")
 	s.rmu.RLock()
 	defer s.rmu.RUnlock()
 

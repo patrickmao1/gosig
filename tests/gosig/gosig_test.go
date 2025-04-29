@@ -17,7 +17,7 @@ var rpcURLs = []string{
 	"localhost:8081",
 	"localhost:8082",
 	"localhost:8083",
-	"localhost:8084",
+	//"localhost:8084",
 	"localhost:8085",
 }
 var pubkeys [][]byte
@@ -67,19 +67,22 @@ func TestParallel(t *testing.T) {
 func TestBatch(t *testing.T) {
 	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
 
-	tick := time.NewTicker(2000 * time.Millisecond)
-	for i := 0; i < 10; i++ {
+	tps := 3500
+	benchDuration := 60
+
+	tick := time.NewTicker(1000 * time.Millisecond)
+	for i := 0; i < benchDuration; i++ {
 		<-tick.C
 		done := make(chan struct{})
-		timeout := time.After(2000 * time.Millisecond)
+		timeout := time.After(1000 * time.Millisecond)
 		go func() {
 			var txs []*types.Transaction
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < tps; j++ {
 				txs = append(txs, &types.Transaction{
 					From:   pubkeys[0],
 					To:     pubkeys[1],
 					Amount: 1,
-					Nonce:  uint32(i*1000 + j),
+					Nonce:  uint32(i*tps + j),
 				})
 			}
 			err := c.SubmitTxs(txs)

@@ -63,14 +63,14 @@ func (c *Client) SubmitTxs(txs []*types.Transaction) error {
 		if (i+1)%10000 == 0 {
 			log.Infof("progress %d", i)
 		}
-		bs, err := proto.Marshal(tx)
-		if err != nil {
-			return err
-		}
-		sig := crypto.SignBytes(c.privkey, bs)
+		//bs, err := proto.Marshal(tx)
+		//if err != nil {
+		//	return err
+		//}
+		//sig := crypto.SignBytes(c.privkey, bs)
 		signedTx := &types.SignedTransaction{
-			Tx:  tx,
-			Sig: sig,
+			Tx: tx,
+			//Sig: sig,
 		}
 		signedTxs[i] = signedTx
 	}

@@ -7,6 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"gopkg.in/yaml.v3"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 )
@@ -55,6 +57,13 @@ func main() {
 	if err != nil {
 		return
 	}
+
+	go func() {
+		err := http.ListenAndServe("0.0.0.0:6060", nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	// starts the blockchain
 	chain := blockchain.NewService(cfg, genesis, d, txPool)
