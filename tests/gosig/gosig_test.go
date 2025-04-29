@@ -17,7 +17,7 @@ var rpcURLs = []string{
 	"localhost:8081",
 	"localhost:8082",
 	"localhost:8083",
-	//"localhost:8084",
+	"localhost:8084",
 	"localhost:8085",
 }
 var pubkeys [][]byte
@@ -67,7 +67,7 @@ func TestParallel(t *testing.T) {
 func TestBatch(t *testing.T) {
 	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
 
-	tps := 3500
+	tps := 20000
 	benchDuration := 60
 
 	tick := time.NewTicker(1000 * time.Millisecond)

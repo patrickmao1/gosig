@@ -11,34 +11,20 @@ import (
 )
 
 type TxPool struct {
-	txs             map[[32]byte]*types.SignedTransaction
-	mu              sync.RWMutex
-	recentlyDeleted map[[32]byte]struct{}
-	mu2             sync.RWMutex
+	txs      map[[32]byte]*types.SignedTransaction
+	mu       sync.RWMutex
+	toDelete [][32]byte
 }
 
 func NewTxPool() *TxPool {
 	return &TxPool{
-		txs:             make(map[[32]byte]*types.SignedTransaction),
-		recentlyDeleted: make(map[[32]byte]struct{}),
+		txs: make(map[[32]byte]*types.SignedTransaction),
 	}
-}
-
-func (p *TxPool) CleanRecentlyDeleted() {
-	p.mu2.Lock()
-	p.recentlyDeleted = make(map[[32]byte]struct{})
-	p.mu2.Unlock()
 }
 
 func (p *TxPool) AddTransaction(tx *types.SignedTransaction) error {
 	var txHash [32]byte
 	copy(txHash[:], tx.Tx.Hash())
-
-	p.mu2.RLock()
-	defer p.mu2.RUnlock()
-	if _, ok := p.recentlyDeleted[txHash]; ok {
-		return nil
-	}
 
 	p.mu.Lock()
 	p.txs[txHash] = tx
@@ -91,19 +77,25 @@ func (p *TxPool) BatchGet(txHashes [][]byte) (found []*types.SignedTransaction, 
 	return
 }
 
-func (p *TxPool) BatchDelete(txHashes [][]byte) {
+func (p *TxPool) DoDelete() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.mu2.Lock()
-	defer p.mu2.Unlock()
+	for _, key := range p.toDelete {
+		delete(p.txs, key)
+	}
+	p.toDelete = nil
+}
+
+func (p *TxPool) ScheduleDelete(txHashes [][]byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	for _, hash := range txHashes {
 		var key [32]byte
 		copy(key[:], hash)
-		delete(p.txs, key)
-		p.recentlyDeleted[key] = struct{}{}
+		p.toDelete = append(p.toDelete, key)
 	}
-	log.Infof("deleted %d tx hashes", len(txHashes))
+	log.Infof("deleted %d txs", len(txHashes))
 }
 
 func checkTxs(txs []*types.SignedTransaction) bool {

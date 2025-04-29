@@ -146,7 +146,7 @@ func (s *Service) initRoundState() error {
 	s.head = head
 	s.minProposal = nil
 
-	s.txPool.CleanRecentlyDeleted()
+	s.txPool.DoDelete()
 
 	// compute the seed for the round
 	seed := blake2b.Sum256(head.ProposerProof)
@@ -175,7 +175,7 @@ func (s *Service) doGenesis() (*types.BlockHeader, error) {
 }
 
 func (s *Service) proposeIfChosen() ([]*types.SignedTransaction, error) {
-	txs := s.txPool.List(35_000)
+	txs := s.txPool.List(1_000_000)
 	if len(txs) == 0 {
 		log.Debugf("skip proposing: no tx in pool")
 		return nil, nil
@@ -333,7 +333,7 @@ func (s *Service) commit(blockHash []byte) error {
 	if err != nil {
 		return err
 	}
-	s.txPool.BatchDelete(txHashes.TxHashes)
+	s.txPool.ScheduleDelete(txHashes.TxHashes)
 	return nil
 }
 

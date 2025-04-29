@@ -9,7 +9,10 @@ import (
 )
 
 func (s *Service) StartRPC() {
-	svr := grpc.NewServer()
+	svr := grpc.NewServer(
+		grpc.MaxRecvMsgSize(32*1024*1024),
+		grpc.MaxSendMsgSize(32*1024*1024),
+	)
 	lis, err := net.Listen("tcp", "0.0.0.0:8080")
 	if err != nil {
 		log.Fatal(err)
