@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"crypto/ecdsa"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -15,12 +16,22 @@ import (
 )
 
 type Validator struct {
-	PubKeyHex string `yaml:"pub_key"`
-	IP        string `yaml:"ip"`
-	Port      int    `yaml:"port"`
+	PubKeyHex   string `yaml:"pub_key"`
+	ECDSAKeyHex string `yaml:"ecdsa_key"`
+	IP          string `yaml:"ip"`
+	Port        int    `yaml:"port"`
 
 	// cached values
-	pubKey []byte
+	pubKey   []byte
+	ecdsaKey *ecdsa.PrivateKey
+}
+
+func (v *Validator) GetECDSAKey() *ecdsa.PrivateKey {
+	if v.ecdsaKey != nil {
+		return v.ecdsaKey
+	}
+	v.ecdsaKey = crypto.UnmarshalHexECDSA(v.ECDSAKeyHex)
+	return v.ecdsaKey
 }
 
 func (v *Validator) GetPubKey() []byte {
@@ -51,6 +62,7 @@ func (vs Validators) PubKeys() [][]byte {
 type NodeConfig struct {
 	DbPath            string `yaml:"db_path"`
 	PrivKeyHex        string `yaml:"priv_key_hex"`
+	ECDSAKeyHex       string `yaml:"ecdsa_key_hex"`
 	ProposalThreshold uint32 `yaml:"proposal_threshold"`
 
 	GossipIntervalMs int   `yaml:"gossip_interval"`
@@ -63,8 +75,17 @@ type NodeConfig struct {
 	Validators Validators `yaml:"validators"`
 
 	// cached values
-	privKey []byte
-	myIndex *uint32
+	privKey  []byte
+	ecdsaKey *ecdsa.PrivateKey
+	myIndex  *uint32
+}
+
+func (c *NodeConfig) MyECDSAKey() *ecdsa.PrivateKey {
+	if c.ecdsaKey != nil {
+		return c.ecdsaKey
+	}
+	c.ecdsaKey = crypto.UnmarshalHexECDSA(c.ECDSAKeyHex)
+	return c.ecdsaKey
 }
 
 func (c *NodeConfig) MyPrivKey() []byte {
@@ -150,7 +171,14 @@ func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 		AgreementStateDurationMs: 7000,
 	}
 	privkeys := make([]string, 0, len(nodes))
-	for _, node := range nodes {
+	ecdsaKeys := []string{
+		"c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0",
+		"26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71",
+		"6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956",
+		"64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481",
+		"376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984",
+	}
+	for i, node := range nodes {
 		bytes := strings.Split(node.IP, ".")
 		ipBytes := make([]byte, len(bytes))
 		for i, bs := range bytes {
@@ -170,6 +198,7 @@ func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 
 		privkey, pubkey := crypto.GenKeyPairBytesFromSeed(int64(seed))
 		node.PubKeyHex = hex.EncodeToString(pubkey)
+		node.ECDSAKeyHex = ecdsaKeys[i]
 		privkeys = append(privkeys, hex.EncodeToString(privkey))
 	}
 	cfgs = &NodeConfigs{}
@@ -177,6 +206,7 @@ func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
 		cp := cfg
 		cp.Validators = nodes
 		cp.PrivKeyHex = privkeys[i]
+		cp.ECDSAKeyHex = ecdsaKeys[i]
 		cfgs.Configs = append(cfgs.Configs, &cp)
 	}
 	return cfgs

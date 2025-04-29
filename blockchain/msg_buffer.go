@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"crypto/ecdsa"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	log "github.com/sirupsen/logrus"
@@ -10,7 +11,7 @@ import (
 )
 
 type OutboundMsgBuffer struct {
-	myPrivkey  []byte
+	myPrivkey  *ecdsa.PrivateKey
 	myValIndex uint32
 
 	prioMsgs  map[string]*types.Message
@@ -20,7 +21,7 @@ type OutboundMsgBuffer struct {
 	mu        sync.RWMutex
 }
 
-func NewOutboundMsgBuffer(myPrivKey []byte, myValIndex uint32) *OutboundMsgBuffer {
+func NewOutboundMsgBuffer(myPrivKey *ecdsa.PrivateKey, myValIndex uint32) *OutboundMsgBuffer {
 	return &OutboundMsgBuffer{
 		myPrivkey:  myPrivKey,
 		myValIndex: myValIndex,
@@ -118,7 +119,7 @@ func (b *OutboundMsgBuffer) PackPriority() *types.Envelope {
 	if err != nil {
 		log.Errorf("Error marshalling messages: %v", err)
 	}
-	sig := crypto.SignBytes(b.myPrivkey, bs)
+	sig := crypto.SignECDSA(b.myPrivkey, bs)
 
 	return &types.Envelope{
 		Msgs:           msgs,
@@ -156,7 +157,7 @@ func (b *OutboundMsgBuffer) Pack() *types.Envelope {
 	if err != nil {
 		log.Errorf("Error marshalling messages: %v", err)
 	}
-	sig := crypto.SignBytes(b.myPrivkey, bs)
+	sig := crypto.SignECDSA(b.myPrivkey, bs)
 
 	return &types.Envelope{
 		Msgs:           msgs,
@@ -211,11 +212,11 @@ func (b *InboundMsgBuffer) DequeueAll() []*types.Message {
 }
 
 func (b *InboundMsgBuffer) checkSig(envelope *types.Envelope) (bool, error) {
-	pubKey := b.vals[envelope.ValidatorIndex].GetPubKey()
+	pubKey := b.vals[envelope.ValidatorIndex].GetECDSAKey().PublicKey
 	msgBytes, err := proto.Marshal(envelope.Msgs)
 	if err != nil {
 		return false, err
 	}
-	pass := crypto.VerifySigBytes(pubKey, msgBytes, envelope.Sig)
+	pass := crypto.VerifyECDSA(&pubKey, msgBytes, envelope.Sig)
 	return pass, err
 }

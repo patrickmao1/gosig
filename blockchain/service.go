@@ -46,7 +46,7 @@ type Service struct {
 }
 
 func NewService(cfg *NodeConfig, genesis *GenesisConfig, db *DB, txPool *TxPool) *Service {
-	outbound := NewOutboundMsgBuffer(cfg.MyPrivKey(), cfg.MyValidatorIndex())
+	outbound := NewOutboundMsgBuffer(cfg.MyECDSAKey(), cfg.MyValidatorIndex())
 	inbound := NewInboundMsgBuffer(cfg.Validators)
 	nw := NewNetwork(
 		outbound,

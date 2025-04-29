@@ -1,121 +1,151 @@
 configs:
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 62c2d527f5123ac76e5690894ae3687fdbb7e4d8cd6b2d4484ad41eb2965ef1a
+      ecdsa_key_hex: c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0
       proposal_threshold: 2585109953
-      gossip_interval: 1000
+      gossip_interval: 500
       gossip_degree: 2
       tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 3000
       agreement_state_duration_ms: 7000
       validators:
         - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ecdsa_key: c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0
           ip: 172.16.0.1
           port: 8080
         - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ecdsa_key: 26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71
           ip: 172.16.0.2
           port: 8080
         - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ecdsa_key: 6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956
           ip: 172.16.0.3
           port: 8080
         - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ecdsa_key: 64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481
           ip: 172.16.0.4
           port: 8080
         - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ecdsa_key: 376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984
           ip: 172.16.0.5
           port: 8080
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 37474be32690a9e881b1c7e2606e9cc80733f997a8e99771a0d2a592229aa664
+      ecdsa_key_hex: 26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71
       proposal_threshold: 2585109953
-      gossip_interval: 1000
+      gossip_interval: 500
       gossip_degree: 2
       tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 3000
       agreement_state_duration_ms: 7000
       validators:
         - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ecdsa_key: c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0
           ip: 172.16.0.1
           port: 8080
         - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ecdsa_key: 26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71
           ip: 172.16.0.2
           port: 8080
         - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ecdsa_key: 6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956
           ip: 172.16.0.3
           port: 8080
         - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ecdsa_key: 64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481
           ip: 172.16.0.4
           port: 8080
         - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ecdsa_key: 376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984
           ip: 172.16.0.5
           port: 8080
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 159050fbf0392f07dd96c0322706d4e22fce75eb6d8606a5d6f36cb08c4e85a6
+      ecdsa_key_hex: 6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956
       proposal_threshold: 2585109953
-      gossip_interval: 1000
+      gossip_interval: 500
       gossip_degree: 2
       tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 3000
       agreement_state_duration_ms: 7000
       validators:
         - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ecdsa_key: c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0
           ip: 172.16.0.1
           port: 8080
         - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ecdsa_key: 26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71
           ip: 172.16.0.2
           port: 8080
         - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ecdsa_key: 6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956
           ip: 172.16.0.3
           port: 8080
         - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ecdsa_key: 64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481
           ip: 172.16.0.4
           port: 8080
         - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ecdsa_key: 376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984
           ip: 172.16.0.5
           port: 8080
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 7211b6b962c0ec28d0f9198cab950d4cb6548ad4f8b0f43af4512d2a8562ad80
+      ecdsa_key_hex: 64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481
       proposal_threshold: 2585109953
-      gossip_interval: 1000
+      gossip_interval: 500
       gossip_degree: 2
       tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 3000
       agreement_state_duration_ms: 7000
       validators:
         - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ecdsa_key: c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0
           ip: 172.16.0.1
           port: 8080
         - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ecdsa_key: 26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71
           ip: 172.16.0.2
           port: 8080
         - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ecdsa_key: 6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956
           ip: 172.16.0.3
           port: 8080
         - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ecdsa_key: 64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481
           ip: 172.16.0.4
           port: 8080
         - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ecdsa_key: 376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984
           ip: 172.16.0.5
           port: 8080
     - db_path: /app/runtime/gosig.db
       priv_key_hex: 48d27bdf2f3b8250ccea73ad13cd41a6a2869c317aadf299cb76c73dff96241d
+      ecdsa_key_hex: 376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984
       proposal_threshold: 2585109953
-      gossip_interval: 1000
+      gossip_interval: 500
       gossip_degree: 2
       tx_hash_gossip_duration_ms: 4000
       proposal_stage_duration_ms: 3000
       agreement_state_duration_ms: 7000
       validators:
         - pub_key: 98c4521c18bcaf179112383f0f24c100b1285d4911e309b9fb19874ba95dcf9f6d7aa6a863fea36f8c536d81de847caa
+          ecdsa_key: c71e183d51e9fae1d4fc410ca16a17a3a89da8e105b0e108576e2a77133f87b0
           ip: 172.16.0.1
           port: 8080
         - pub_key: b78d4ab16b2e8ad42f98b1485987c9e300cd3be4038d4b41adb09e84bfcd346eacfaabf065759d961294daf70356ec8f
+          ecdsa_key: 26c65dc72d016ebe50a5751c258d8ff3ddc3da40b5dcf7ac638619e041119b71
           ip: 172.16.0.2
           port: 8080
         - pub_key: b981b78abe5a1b540df6a41291f99047696bc357fef00fa32e0386e1b36ad41439c414a8c5b30e67f92d19a35418aed6
+          ecdsa_key: 6a7e2b2ee79a8444d489c900f0c32bd944c88530882c9348b0d477b825773956
           ip: 172.16.0.3
           port: 8080
         - pub_key: 8aac30ecf9cd71e51d5875857def2545c4e53d1cb8e775d1e65fccc303bbe8b154b40b17f2ce20dd390dba504a27c99a
+          ecdsa_key: 64d691d9af74ff28b23f38e49bedbae5aa5298933c477d60173a3990eb263481
           ip: 172.16.0.4
           port: 8080
         - pub_key: 89a8059107410153b77880cb1d594b37ce9f27a45bc89795cb9245102837522d596579a0ff55ac67ee6691e799a3babc
+          ecdsa_key: 376bb541ff3c913ea6b07cc0c405b991d354e140b4c3b8908884b84ef1475984
           ip: 172.16.0.5
           port: 8080
