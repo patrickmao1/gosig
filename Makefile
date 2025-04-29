@@ -16,7 +16,7 @@ up: down
 	docker compose -f tests/gosig/compose.yaml --project-directory . logs -f
 
 prof:
-	go tool pprof -http=localhost:8000 "http://localhost:6060/debug/pprof/profile?seconds=30"
+	go tool pprof -http=localhost:8000 "http://localhost:6060/debug/pprof/profile?seconds=58"
 
 config:
 	go run ./cmd/config_gen/main.go
