@@ -1,6 +1,8 @@
 module github.com/patrickmao1/gosig
 
-go 1.24.1
+go 1.23.0
+
+toolchain go1.24.1
 
 require (
 	github.com/kilic/bls12-381 v0.1.0
