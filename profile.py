@@ -17,10 +17,12 @@ for i in range(NUM_NODES):
     lan.addInterface(iface)
 
     cmd = """
-sudo apt-get update
-sudo apt-get install -y golang
-echo 'export node_index={0}' >> ~/.bashrc
 echo $(pwd)
+sudo apt-get update
+wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
+rm -rf /usr/local/go && tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
+echo 'export node_index={0}' >> ~/.bashrc
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 git clone https://github.com/patrickmao1/gosig && cd gosig
 make install
 """.format(i, name)

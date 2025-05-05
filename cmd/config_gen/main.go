@@ -17,12 +17,12 @@ var nodeURLs = []string{
 }
 
 func main() {
-	cfgs := blockchain.GenTestConfigs(buildValidators(nodeURLs))
+	cfgs := blockchain.GenTestConfigs(buildValidators(nodeURLs), "/app/runtime/gosig.db")
 	bs, err := yaml.Marshal(cfgs)
 	if err != nil {
 		panic(err)
 	}
-	f, err := os.OpenFile("test_config.yaml", os.O_RDWR|os.O_CREATE, 0600)
+	f, err := os.OpenFile("config.yaml", os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		panic(err)
 	}

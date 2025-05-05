@@ -159,7 +159,7 @@ type NodeConfigs struct {
 	Configs []*NodeConfig `yaml:"configs"`
 }
 
-func GenTestConfigs(nodes Validators) (cfgs *NodeConfigs) {
+func GenTestConfigs(nodes Validators, dbPath string) (cfgs *NodeConfigs) {
 	cfg := NodeConfig{
 		DbPath:            "/app/runtime/gosig.db",
 		ProposalThreshold: computeThreshold(len(nodes)),

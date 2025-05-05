@@ -22,4 +22,7 @@ config:
 	go run ./cmd/config_gen/main.go
 
 install:
-	go build -o ./build/gosig ./cmd/gosig_test
+	go build -o ./gosig ./cmd/gosig_test
+
+start:
+	./gosig -configPath="./config.yaml"
