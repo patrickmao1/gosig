@@ -17,15 +17,16 @@ for i in range(NUM_NODES):
     lan.addInterface(iface)
 
     cmd = """
-echo $(pwd)
 sudo apt-get update
-wget https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
-rm -rf /usr/local/go && tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz
-echo 'export node_index={0}' >> ~/.bashrc
-echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
-git clone https://github.com/patrickmao1/gosig && cd gosig
+cd /users/patrickm
+wget -P /tmp https://go.dev/dl/go1.24.2.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go1.24.2.linux-amd64.tar.gz
+echo "export node_index={0}" >> /users/patrickm/.bashrc
+echo "export PATH=$PATH:/usr/local/go/bin" >> /users/patrickm/.bashrc
+source /users/patrickm/.bashrc
+git clone https://github.com/patrickmao1/gosig && cd gosig || exit
 make install
-""".format(i, name)
+    """.format(i)
 
     node.addService(rspec.Execute(shell="bash", command=cmd))
 
