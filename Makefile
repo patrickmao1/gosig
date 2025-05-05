@@ -21,3 +21,5 @@ prof:
 config:
 	go run ./cmd/config_gen/main.go
 
+install:
+	go build -o ./build/gosig ./cmd/gosig_test

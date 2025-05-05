@@ -19,7 +19,10 @@ for i in range(NUM_NODES):
     cmd = """
 sudo apt-get update
 sudo apt-get install -y golang
-export node_index={0}
+echo 'export node_index={0}' >> ~/.bashrc
+echo $(pwd)
+git clone https://github.com/patrickmao1/gosig && cd gosig
+make install
 """.format(i, name)
 
     node.addService(rspec.Execute(shell="bash", command=cmd))
