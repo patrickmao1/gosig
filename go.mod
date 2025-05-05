@@ -2,8 +2,6 @@ module github.com/patrickmao1/gosig
 
 go 1.23.0
 
-toolchain go1.24.1
-
 require (
 	github.com/kilic/bls12-381 v0.1.0
 	github.com/sirupsen/logrus v1.9.3
