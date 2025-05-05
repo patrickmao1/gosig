@@ -16,10 +16,10 @@ func (c *GenesisConfig) GenesisTime() time.Time {
 }
 
 func DefaultGenesisConfig() *GenesisConfig {
-	t := time.Now().Unix() / 3600 * 3600 * 1000 // the beginning of the current hour in ms
+	t := time.Unix(1746334800, 0) // 2025-5-4 00:00:00
 	initSeed := blake2b.Sum256([]byte("Gosig"))
 	return &GenesisConfig{
-		GenesisTimeMs: t,
+		GenesisTimeMs: t.UnixMilli(),
 		InitialSeed:   initSeed[:],
 	}
 }

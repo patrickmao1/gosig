@@ -276,10 +276,10 @@ func (s *Service) tentativeCommit(outMsgs *OutboundMsgBuffer, blockHash []byte) 
 		log.Infof("tentativeCommit: fetching missing txs took %s", time.Since(before))
 	}
 
-	//pass := checkTxs(txs)
-	//if !pass {
-	//	return fmt.Errorf("tx check failed")
-	//}
+	pass := checkTxs(txs)
+	if !pass {
+		return fmt.Errorf("tx check failed")
+	}
 
 	tc := &types.TentativeCommit{BlockHash: blockHash}
 	cert, err := s.signNewCert(tc)

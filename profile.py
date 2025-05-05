@@ -1,20 +1,37 @@
 import geni.portal as portal
 import geni.rspec.pg as rspec
 
-# 1. Create a Portal (for params) and RSpec Request
+NUM_NODES = 5
+
 pc = portal.Context()
 request = rspec.Request()
 
-# 2. Add nodes
-node = request.RawPC('node1')
-# (Optional) set node.disk_image, node.hardware_type, etc.
-iface = node.addInterface('if1')
-# 3. Add networks (LAN)
 lan = request.LAN('lan0')
-lan.addInterface(iface)
+lan.best_effort = False
 
-# 4. Add services or commands to run on each node
-node.addService(rspec.Execute(shell='bash', command='your_startup_script.sh'))
+for i in range(NUM_NODES):
+    name = "node{}".format(i)
+    node = request.RawPC(name)
+    iface = node.addInterface("if{}".format(i))
+    iface.addAddress(rspec.IPv4Address("10.0.0.%d" % (10 + i), "255.255.255.0"))
+    lan.addInterface(iface)
 
-# 5. Print the generated RSpec
-portal.Context().printRequestRSpec(request)
+    cmd = """
+#!/bin/bash
+set -e
+
+curl -L https://git.io/fFfOR | bash
+source ~/.profile
+
+TMHOME=/local/node{0}
+mkdir -p $TMHOME
+tendermint init --home $TMHOME
+
+NODE_ID=$(tendermint show_node_id --home $TMHOME)
+IP=$(hostname -I | awk '{{print $1}}')
+echo ">>> {1} ID=$NODE_ID at $IP:26656 <<<"
+""".format(i, name)
+
+    node.addService(rspec.Execute(shell="bash", command=cmd))
+
+pc.printRequestRSpec(request)

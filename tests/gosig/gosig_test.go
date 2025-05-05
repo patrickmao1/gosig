@@ -3,6 +3,7 @@ package gosig
 import (
 	"github.com/patrickmao1/gosig/blockchain"
 	"github.com/patrickmao1/gosig/client"
+	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
 	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
@@ -14,26 +15,24 @@ import (
 )
 
 var rpcURLs = []string{
+	"localhost:8080",
 	"localhost:8081",
 	"localhost:8082",
 	"localhost:8083",
 	"localhost:8084",
-	"localhost:8085",
 }
-var pubkeys [][]byte
-var privkeys [][]byte
 
-func init() {
-	pubkeys, privkeys = utils.GenTestKeyPairs(10)
+func getPubKey(n int) []byte {
+	return crypto.MarshalECDSAPublic(&utils.TestECDSAKeys[n].PublicKey)
 }
 
 func Test(t *testing.T) {
-	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	c := client.New(utils.TestECDSAKeys[0], rpcURLs)
 	for i := 0; i < 10; i++ {
 		log.Infof("sending tx %d", i)
 		err := c.SubmitTx(&types.Transaction{
-			From:   pubkeys[0],
-			To:     pubkeys[1],
+			From:   getPubKey(0),
+			To:     getPubKey(1),
 			Amount: 1,
 			Nonce:  uint32(i),
 		})
@@ -42,7 +41,7 @@ func Test(t *testing.T) {
 }
 
 func TestParallel(t *testing.T) {
-	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	c := client.New(utils.TestECDSAKeys[0], rpcURLs)
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -51,8 +50,8 @@ func TestParallel(t *testing.T) {
 			var txs []*types.Transaction
 			for j := 0; j < 500; j++ {
 				txs = append(txs, &types.Transaction{
-					From:   pubkeys[0],
-					To:     pubkeys[1],
+					From:   getPubKey(0),
+					To:     getPubKey(1),
 					Amount: 1,
 					Nonce:  uint32(i*500 + j),
 				})
@@ -65,9 +64,9 @@ func TestParallel(t *testing.T) {
 }
 
 func TestBatch(t *testing.T) {
-	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
+	c := client.New(utils.TestECDSAKeys[0], rpcURLs)
 
-	tps := 20000
+	tps := 3500
 	benchDuration := 60
 
 	tick := time.NewTicker(1000 * time.Millisecond)
@@ -79,10 +78,9 @@ func TestBatch(t *testing.T) {
 			var txs []*types.Transaction
 			for j := 0; j < tps; j++ {
 				txs = append(txs, &types.Transaction{
-					From:   pubkeys[0],
-					To:     pubkeys[1],
-					Amount: 1,
-					Nonce:  uint32(i*tps + j),
+					From: getPubKey(0),
+					To:   getPubKey(1), Amount: 1,
+					Nonce: uint32(i*tps + j),
 				})
 			}
 			err := c.SubmitTxs(txs)
@@ -100,12 +98,12 @@ func TestBatch(t *testing.T) {
 }
 
 func TestBalance(t *testing.T) {
-	c := client.New(privkeys[0], pubkeys[0], rpcURLs)
-	balance0, err := c.GetBalance(pubkeys[0])
+	c := client.New(utils.TestECDSAKeys[0], rpcURLs)
+	balance0, err := c.GetBalance(getPubKey(0))
 	if err != nil {
 		return
 	}
-	balance1, err := c.GetBalance(pubkeys[1])
+	balance1, err := c.GetBalance(getPubKey(1))
 	if err != nil {
 		return
 	}

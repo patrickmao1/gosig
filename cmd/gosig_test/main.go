@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"github.com/patrickmao1/gosig/blockchain"
+	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -52,8 +53,10 @@ func main() {
 	txPool := blockchain.NewTxPool()
 
 	// init test state
-	pubkeys, _ := utils.GenTestKeyPairs(10)
-	err = d.PutBalance(pubkeys[0], 10_000_000)
+	testAmount := 10_000_000
+	testAccount := crypto.MarshalECDSAPublic(&utils.TestECDSAKeys[0].PublicKey)
+	log.Infof("funding test account %x with %d", testAccount, testAmount)
+	err = d.PutBalance(testAccount, 10_000_000)
 	if err != nil {
 		return
 	}

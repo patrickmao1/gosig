@@ -3,11 +3,9 @@ package blockchain
 import (
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
-	"github.com/patrickmao1/gosig/utils"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 	"sync"
-	"time"
 )
 
 type TxPool struct {
@@ -99,14 +97,13 @@ func (p *TxPool) ScheduleDelete(txHashes [][]byte) {
 }
 
 func checkTxs(txs []*types.SignedTransaction) bool {
-	utils.LogExecTime(time.Now(), "checkTxs", len(txs))
 	for _, tx := range txs {
 		bs, err := proto.Marshal(tx.Tx)
 		if err != nil {
 			log.Error(err)
 			return false
 		}
-		pass := crypto.VerifySigBytes(tx.Tx.From, bs, tx.Sig)
+		pass := crypto.VerifyECDSABytes(tx.Tx.From, bs, tx.Sig)
 		if !pass {
 			log.Errorf("tx %s invalid signature", tx.ToString())
 			return false

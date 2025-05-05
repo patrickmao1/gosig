@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"github.com/patrickmao1/gosig/crypto"
 	"github.com/patrickmao1/gosig/types"
@@ -14,14 +15,12 @@ import (
 
 type Client struct {
 	clients []types.RPCClient
-	privkey []byte
-	pubkey  []byte
+	key     *ecdsa.PrivateKey
 }
 
-func New(privkey, pubkey []byte, nodes []string) *Client {
+func New(key *ecdsa.PrivateKey, nodes []string) *Client {
 	c := new(Client)
-	c.privkey = privkey
-	c.pubkey = pubkey
+	c.key = key
 	for _, url := range nodes {
 		dialOpt := []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -41,7 +40,7 @@ func (c *Client) SubmitTx(tx *types.Transaction) error {
 	if err != nil {
 		return err
 	}
-	sig := crypto.SignBytes(c.privkey, bs)
+	sig := crypto.SignECDSA(c.key, bs)
 	signedTx := &types.SignedTransaction{
 		Tx:  tx,
 		Sig: sig,
@@ -60,17 +59,14 @@ func (c *Client) SubmitTx(tx *types.Transaction) error {
 func (c *Client) SubmitTxs(txs []*types.Transaction) error {
 	signedTxs := make([]*types.SignedTransaction, len(txs))
 	for i, tx := range txs {
-		if (i+1)%10000 == 0 {
-			log.Infof("progress %d", i)
+		bs, err := proto.Marshal(tx)
+		if err != nil {
+			return err
 		}
-		//bs, err := proto.Marshal(tx)
-		//if err != nil {
-		//	return err
-		//}
-		//sig := crypto.SignBytes(c.privkey, bs)
+		sig := crypto.SignECDSA(c.key, bs)
 		signedTx := &types.SignedTransaction{
-			Tx: tx,
-			//Sig: sig,
+			Tx:  tx,
+			Sig: sig,
 		}
 		signedTxs[i] = signedTx
 	}
